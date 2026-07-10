@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Horizon — Setup Guide</title>
+    <style>
+      :root {
+        --bg: #060d16;
+        --panel: rgba(255, 255, 255, 0.03);
+        --border: rgba(255, 255, 255, 0.09);
+        --text: #dce6f2;
+        --muted: #8aa0b8;
+        --accent: #38bdf8;
+        --accent-soft: rgba(56, 189, 248, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 70% -10%, #0c2740 0%, var(--bg) 55%);
+        color: var(--text);
+        font: 16px/1.65 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        padding: 48px 20px 96px;
+      }
+      main { max-width: 760px; margin: 0 auto; }
+      .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+      .brand .mark {
+        width: 44px; height: 44px; border-radius: 12px;
+        background: var(--accent-soft); border: 1px solid var(--border);
+        display: grid; place-items: center; font-size: 22px;
+      }
+      h1 { font-size: 30px; margin: 0; letter-spacing: 0.01em; }
+      .tagline { color: var(--muted); text-transform: uppercase; letter-spacing: 0.18em; font-size: 12px; }
+      .lede { color: var(--text); font-size: 17px; margin: 20px 0 8px; }
+      section {
+        background: var(--panel); border: 1px solid var(--border);
+        border-radius: 16px; padding: 22px 24px; margin: 18px 0;
+      }
+      h2 { font-size: 18px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+      h2 .n {
+        width: 26px; height: 26px; border-radius: 999px; flex: none;
+        background: var(--accent-soft); border: 1px solid rgba(56,189,248,0.35);
+        color: #bde8ff; font-size: 13px; font-weight: 700; display: grid; place-items: center;
+      }
+      h2 .opt { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+        color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
+      p { margin: 10px 0; }
+      .muted { color: var(--muted); }
+      ol, ul { margin: 10px 0; padding-left: 22px; }
+      li { margin: 7px 0; }
+      code, .path {
+        background: var(--accent-soft); border: 1px solid rgba(56,189,248,0.3);
+        color: #cdeeff; border-radius: 7px; padding: 2px 8px; font-family: Consolas, monospace; font-size: 14px;
+      }
+      strong { color: #fff; }
+      .callout {
+        border-left: 3px solid var(--accent); background: rgba(56,189,248,0.06);
+        border-radius: 8px; padding: 12px 16px; margin: 14px 0; color: var(--text);
+      }
+      footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <div class="mark">🛰️</div>
+        <div>
+          <h1>Welcome to Horizon</h1>
+          <div class="tagline">Everything in orbit</div>
+        </div>
+      </div>
+
+      <p class="lede">
+        Horizon is your one place to work from — notes, tasks, calendar, projects, files, and apps in a single home
+        base. This page walks you through setup. It takes about two minutes, and you only do it once.
+      </p>
+
+      <div class="callout">
+        The installer already put Horizon on your PC and created a <strong>HorizonOS</strong> shortcut on your
+        Desktop and Start menu. If Horizon didn't open on its own, launch it from there.
+      </div>
+
+      <section>
+        <h2><span class="n">1</span> The big idea</h2>
+        <p>
+          Under the hood, Horizon keeps a <strong>vault</strong>: a plain folder of Markdown files that is the durable
+          source of truth. Everything you do in the app is saved there as readable files you own forever. Horizon is
+          <strong>local-first</strong> — your data lives on your machine, not in someone else's cloud.
+        </p>
+        <p class="muted">
+          Practical upshot: work inside Horizon, and it quietly keeps a clean, portable archive for you.
+        </p>
+      </section>
+
+      <section>
+        <h2><span class="n">2</span> Point Obsidian at your vault <span class="opt">Optional</span></h2>
+        <p>
+          Horizon reads and writes your vault by itself — you can use it with nothing else installed. Adding the free
+          <strong>Obsidian</strong> app just gives you a second way to browse and edit the same notes.
+        </p>
+        <ol>
+          <li>Download Obsidian from <code>obsidian.md</code> and install it.</li>
+          <li>In Obsidian, choose <strong>Open folder as vault</strong>.</li>
+          <li>
+            Point it at your Horizon folder (the installer shows the exact path when it finishes; it's usually
+            <span class="path">%USERPROFILE%\HorizonOS</span>).
+          </li>
+        </ol>
+        <p class="muted">Edits in Obsidian and Horizon are the same files — always in sync, no import/export.</p>
+      </section>
+
+      <section>
+        <h2><span class="n">3</span> Connect the apps you use <span class="opt">Optional</span></h2>
+        <p>Open <strong>Settings → Integrations</strong> in Horizon and turn on what you want:</p>
+        <ul>
+          <li><strong>Microsoft Office</strong> (Word, Excel, PowerPoint, Outlook, OneNote) — opens your locally installed apps. Nothing to configure.</li>
+          <li><strong>Google</strong> (Drive, Docs, Sheets, Gmail, Calendar) — opens on the web; optionally connect Drive to browse files inside Horizon.</li>
+          <li><strong>Research</strong> — library and scholar search, plus your in-vault research notes.</li>
+          <li><strong>Codex</strong> — the assistant that sorts your captures (next step).</li>
+        </ul>
+        <p class="muted">Skip anything you don't use. You can add it later at any time.</p>
+      </section>
+
+      <section>
+        <h2><span class="n">4</span> Your daily rhythm</h2>
+        <ol>
+          <li><strong>Capture anything</strong> — type a thought, task, or link into the Capture bar on Home. It's saved instantly.</li>
+          <li><strong>Sweep the queue</strong> — open the Capture Queue and let Horizon turn each item into a calendar event, note, project, or reference. One click each, fully undoable.</li>
+          <li><strong>Work from Home</strong> — check Today for what's next, spotlight your active project, and run a Focus session for deep work.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2><span class="n">5</span> Where to get help</h2>
+        <p>
+          The full, feature-by-feature manual lives inside the app under
+          <strong>Settings → Advanced → How to use Horizon</strong>. You can replay the first-run walkthrough from
+          there too.
+        </p>
+        <p class="muted">
+          Updates: Horizon keeps itself current automatically in the background when a new version is available.
+        </p>
+      </section>
+
+      <footer>Horizon • Everything in orbit</footer>
+    </main>
+  </body>
+</html>

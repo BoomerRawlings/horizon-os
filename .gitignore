@@ -1,0 +1,31 @@
+# Dependencies and build output (restored/rebuilt locally by the installer)
+node_modules/
+Dashboard/node_modules/
+Dashboard/native-dist/
+Dashboard/dist/
+Dashboard/dist-installer/starter-vault/00_System/local/
+release/
+*.tsbuildinfo
+*.log
+*.err.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.obsidian/
+.claude/
+tmp/
+tmp_*.js
+00_System/local/
+06_Integrations/Horizon/local/
+
+# Runtime vault content — this is a code repo, not a place for personal notes.
+# The empty starter folders (index.md / Now.md) are tracked; generated notes are not.
+Calendar/Items/*
+Inbox/Captures/*
+Inbox/To Triage/*
+Runs/CaptureQueue/*
+Runs/IntegrationTests/*
+Research Papers/*
+!**/index.md
+!Calendar/Now.md

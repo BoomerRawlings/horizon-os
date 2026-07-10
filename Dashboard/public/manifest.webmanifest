@@ -1,0 +1,24 @@
+{
+  "name": "Horizon",
+  "short_name": "Horizon",
+  "description": "Horizon OS personal command center.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07111d",
+  "theme_color": "#07111d",
+  "icons": [
+    {
+      "src": "/horizon-os-icon.png?v=2",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/horizon-os-icon.png?v=2",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

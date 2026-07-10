@@ -1,0 +1,83 @@
+{
+  "name": "horizon-os-dashboard",
+  "version": "0.2.0",
+  "description": "A local-first desktop workspace for capture, projects, calendar, and focused work.",
+  "author": "Horizon contributors",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "native:dev": "npm run build && electron .",
+    "native:pack:safe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack-native.ps1",
+    "native:pack:mac": "npm run build && electron-builder --mac --x64 --arm64",
+    "make:dist": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-distribution.ps1",
+    "native:pack": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
+    "native:pack:only": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
+    "_native:pack:unsafe": "npm run build && electron-builder --win dir",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "privacy:scan": "node scripts/privacy-scan.mjs",
+    "smoke": "node tests/smoke.mjs",
+    "test:heuristics": "node tests/heuristics.test.mjs"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "io.github.boomerrawlings.horizon",
+    "productName": "Horizon",
+    "asar": false,
+    "directories": {
+      "output": "native-dist"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/horizon-os-icon.ico",
+      "public/horizon-os-icon.png",
+      "server.cjs",
+      "server/**/*",
+      "launch.ps1",
+      "server-start.ps1",
+      "run-hidden.vbs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-installer/starter-vault",
+        "to": "starter-vault"
+      }
+    ],
+    "win": {
+      "target": [
+        "dir"
+      ],
+      "icon": "public/horizon-os-icon.ico",
+      "artifactName": "Horizon-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "public/horizon-os-icon.png",
+      "artifactName": "Horizon-${version}-${arch}.${ext}"
+    }
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "lucide-react": "^0.545.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.21",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  }
+}

@@ -1,0 +1,1252 @@
+{
+  "slots": [
+    {
+      "slotIndex": 0,
+      "start": "00:00",
+      "end": "00:15",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 00:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "00:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 1,
+      "start": "00:15",
+      "end": "00:30",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 00:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "00:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 2,
+      "start": "00:30",
+      "end": "00:45",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 00:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "00:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 3,
+      "start": "00:45",
+      "end": "01:00",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 00:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "00:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 4,
+      "start": "01:00",
+      "end": "01:15",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 01:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "01:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 5,
+      "start": "01:15",
+      "end": "01:30",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 01:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "01:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 6,
+      "start": "01:30",
+      "end": "01:45",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 01:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "01:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 7,
+      "start": "01:45",
+      "end": "02:00",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 01:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "01:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 8,
+      "start": "02:00",
+      "end": "02:15",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 02:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "02:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 9,
+      "start": "02:15",
+      "end": "02:30",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 02:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "02:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 10,
+      "start": "02:30",
+      "end": "02:45",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 02:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "02:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 11,
+      "start": "02:45",
+      "end": "03:00",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 02:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "02:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 12,
+      "start": "03:00",
+      "end": "03:15",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 03:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "03:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 13,
+      "start": "03:15",
+      "end": "03:30",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 03:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "03:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 14,
+      "start": "03:30",
+      "end": "03:45",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 03:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "03:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 15,
+      "start": "03:45",
+      "end": "04:00",
+      "period": "late_night",
+      "periodLabel": "Late night",
+      "options": [
+        "It's 03:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "03:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 16,
+      "start": "04:00",
+      "end": "04:15",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 04:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "04:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 17,
+      "start": "04:15",
+      "end": "04:30",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 04:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "04:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 18,
+      "start": "04:30",
+      "end": "04:45",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 04:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "04:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 19,
+      "start": "04:45",
+      "end": "05:00",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 04:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "04:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 20,
+      "start": "05:00",
+      "end": "05:15",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 05:00, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "05:00 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 21,
+      "start": "05:15",
+      "end": "05:30",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 05:15, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "05:15 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 22,
+      "start": "05:30",
+      "end": "05:45",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 05:30, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "05:30 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 23,
+      "start": "05:45",
+      "end": "06:00",
+      "period": "pre_dawn",
+      "periodLabel": "Pre-dawn / early start",
+      "options": [
+        "It's 05:45, {name}. Save the thought and head toward bed.",
+        "Rest is the best next step. Capture anything important, then let it wait.",
+        "A calm shutdown counts as progress. Close the loop and get some sleep.",
+        "05:45 check-in, {name}. Choose sleep over another work block."
+      ]
+    },
+    {
+      "slotIndex": 24,
+      "start": "06:00",
+      "end": "06:15",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "06:00 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 25,
+      "start": "06:15",
+      "end": "06:30",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "06:15 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 26,
+      "start": "06:30",
+      "end": "06:45",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "06:30 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 27,
+      "start": "06:45",
+      "end": "07:00",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "06:45 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 28,
+      "start": "07:00",
+      "end": "07:15",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "07:00 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 29,
+      "start": "07:15",
+      "end": "07:30",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "07:15 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 30,
+      "start": "07:30",
+      "end": "07:45",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "07:30 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 31,
+      "start": "07:45",
+      "end": "08:00",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "07:45 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 32,
+      "start": "08:00",
+      "end": "08:15",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "08:00 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 33,
+      "start": "08:15",
+      "end": "08:30",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "08:15 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 34,
+      "start": "08:30",
+      "end": "08:45",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "08:30 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 35,
+      "start": "08:45",
+      "end": "09:00",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "Good morning, {name}. Start gently and choose one clear priority.",
+        "A steady morning is a strong one. Water, light, and a simple first step.",
+        "Begin with the task that makes the rest of the day easier.",
+        "08:45 check-in, {name}. Keep the first block simple and kind."
+      ]
+    },
+    {
+      "slotIndex": 36,
+      "start": "09:00",
+      "end": "09:15",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "09:00 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 37,
+      "start": "09:15",
+      "end": "09:30",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "09:15 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 38,
+      "start": "09:30",
+      "end": "09:45",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "09:30 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 39,
+      "start": "09:45",
+      "end": "10:00",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "09:45 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 40,
+      "start": "10:00",
+      "end": "10:15",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "10:00 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 41,
+      "start": "10:15",
+      "end": "10:30",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "10:15 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 42,
+      "start": "10:30",
+      "end": "10:45",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "10:30 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 43,
+      "start": "10:45",
+      "end": "11:00",
+      "period": "morning",
+      "periodLabel": "Morning",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "10:45 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 44,
+      "start": "11:00",
+      "end": "11:15",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "11:00 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 45,
+      "start": "11:15",
+      "end": "11:30",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "11:15 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 46,
+      "start": "11:30",
+      "end": "11:45",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "11:30 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 47,
+      "start": "11:45",
+      "end": "12:00",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "You're in a good focus window, {name}. Pick one useful thing and begin.",
+        "Small, steady progress is enough. Keep the next step visible.",
+        "Protect your attention. One priority before new tabs or new tasks.",
+        "11:45 check-in, {name}. Take the practical next step."
+      ]
+    },
+    {
+      "slotIndex": 48,
+      "start": "12:00",
+      "end": "12:15",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "12:00 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 49,
+      "start": "12:15",
+      "end": "12:30",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "12:15 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 50,
+      "start": "12:30",
+      "end": "12:45",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "12:30 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 51,
+      "start": "12:45",
+      "end": "13:00",
+      "period": "midday",
+      "periodLabel": "Midday",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "12:45 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 52,
+      "start": "13:00",
+      "end": "13:15",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "13:00 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 53,
+      "start": "13:15",
+      "end": "13:30",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "13:15 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 54,
+      "start": "13:30",
+      "end": "13:45",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "13:30 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 55,
+      "start": "13:45",
+      "end": "14:00",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Midday reset, {name}. Breathe, hydrate, and choose the next block.",
+        "You can adjust the plan without starting over. Keep it simple.",
+        "A short reset now can make the afternoon easier.",
+        "13:45 check-in, {name}. Review, choose, continue."
+      ]
+    },
+    {
+      "slotIndex": 56,
+      "start": "14:00",
+      "end": "14:15",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "14:00 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 57,
+      "start": "14:15",
+      "end": "14:30",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "14:15 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 58,
+      "start": "14:30",
+      "end": "14:45",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "14:30 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 59,
+      "start": "14:45",
+      "end": "15:00",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "14:45 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 60,
+      "start": "15:00",
+      "end": "15:15",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "15:00 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 61,
+      "start": "15:15",
+      "end": "15:30",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "15:15 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 62,
+      "start": "15:30",
+      "end": "15:45",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "15:30 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 63,
+      "start": "15:45",
+      "end": "16:00",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "15:45 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 64,
+      "start": "16:00",
+      "end": "16:15",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "16:00 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 65,
+      "start": "16:15",
+      "end": "16:30",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "16:15 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 66,
+      "start": "16:30",
+      "end": "16:45",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "16:30 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 67,
+      "start": "16:45",
+      "end": "17:00",
+      "period": "afternoon",
+      "periodLabel": "Afternoon",
+      "options": [
+        "Afternoon check-in, {name}. Stay with one lane long enough to finish something.",
+        "Keep the scope honest. Progress beats a crowded plan.",
+        "Close one useful loop before opening another.",
+        "16:45 check-in, {name}. Make the next step manageable."
+      ]
+    },
+    {
+      "slotIndex": 68,
+      "start": "17:00",
+      "end": "17:15",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "17:00 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 69,
+      "start": "17:15",
+      "end": "17:30",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "17:15 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 70,
+      "start": "17:30",
+      "end": "17:45",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "17:30 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 71,
+      "start": "17:45",
+      "end": "18:00",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "17:45 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 72,
+      "start": "18:00",
+      "end": "18:15",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "18:00 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 73,
+      "start": "18:15",
+      "end": "18:30",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "18:15 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 74,
+      "start": "18:30",
+      "end": "18:45",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "18:30 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 75,
+      "start": "18:45",
+      "end": "19:00",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "18:45 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 76,
+      "start": "19:00",
+      "end": "19:15",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "19:00 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 77,
+      "start": "19:15",
+      "end": "19:30",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "19:15 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 78,
+      "start": "19:30",
+      "end": "19:45",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "19:30 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 79,
+      "start": "19:45",
+      "end": "20:00",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "19:45 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 80,
+      "start": "20:00",
+      "end": "20:15",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "20:00 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 81,
+      "start": "20:15",
+      "end": "20:30",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "20:15 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 82,
+      "start": "20:30",
+      "end": "20:45",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "20:30 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 83,
+      "start": "20:45",
+      "end": "21:00",
+      "period": "evening",
+      "periodLabel": "Evening",
+      "options": [
+        "Evening check-in, {name}. Finish lightly and make tomorrow easier.",
+        "Capture loose ends so your mind does not have to hold them all night.",
+        "Choose a clean stopping point. Recovery is part of the system.",
+        "20:45 check-in, {name}. Keep the work bounded and gentle."
+      ]
+    },
+    {
+      "slotIndex": 84,
+      "start": "21:00",
+      "end": "21:15",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "21:00 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 85,
+      "start": "21:15",
+      "end": "21:30",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "21:15 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 86,
+      "start": "21:30",
+      "end": "21:45",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "21:30 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 87,
+      "start": "21:45",
+      "end": "22:00",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "21:45 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 88,
+      "start": "22:00",
+      "end": "22:15",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "22:00 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 89,
+      "start": "22:15",
+      "end": "22:30",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "22:15 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 90,
+      "start": "22:30",
+      "end": "22:45",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "22:30 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 91,
+      "start": "22:45",
+      "end": "23:00",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "22:45 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 92,
+      "start": "23:00",
+      "end": "23:15",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "23:00 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 93,
+      "start": "23:15",
+      "end": "23:30",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "23:15 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 94,
+      "start": "23:30",
+      "end": "23:45",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "23:30 check-in, {name}. One small wrap-up, then rest."
+      ]
+    },
+    {
+      "slotIndex": 95,
+      "start": "23:45",
+      "end": "24:00",
+      "period": "night",
+      "periodLabel": "Night",
+      "options": [
+        "Night check-in, {name}. Capture what matters and start winding down.",
+        "Let tomorrow hold tomorrow's work. A calm close is a good choice.",
+        "If it can wait, let it wait. Protect your sleep and your morning.",
+        "23:45 check-in, {name}. One small wrap-up, then rest."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI Agent">
+  <defs>
+    <linearGradient id="agent-glow" x1="13" x2="50" y1="8" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d8b4fe"/>
+      <stop offset="0.5" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 8l4.3 14.1L50 27l-13.7 4.9L32 46l-4.3-14.1L14 27l13.7-4.9L32 8Z" fill="url(#agent-glow)"/>
+  <path d="M49 40l1.9 6.1L57 48l-6.1 1.9L49 56l-1.9-6.1L41 48l6.1-1.9L49 40Z" fill="#7dd3fc" opacity="0.9"/>
+  <path d="M17 39l1.4 4.6L23 45l-4.6 1.4L17 51l-1.4-4.6L11 45l4.6-1.4L17 39Z" fill="#c084fc" opacity="0.85"/>
+</svg>

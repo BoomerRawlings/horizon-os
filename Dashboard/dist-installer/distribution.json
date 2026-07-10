@@ -1,0 +1,6 @@
+{
+  "productName": "Horizon",
+  "updateRepoUrl": "https://github.com/BoomerRawlings/horizon-os.git",
+  "updateBranch": "main",
+  "_comment": "Canonical public code-only update repository. Fork maintainers must replace updateRepoUrl with their own scrubbed repository before distributing a fork."
+}
