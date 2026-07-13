@@ -58,15 +58,17 @@ if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.string
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
 ok("/api/health identifies rawlings-os and its ready active vault");
 
-const developmentSandboxResponse = await fetch(`${BASE}/api/development-sandbox`);
-const developmentSandboxHtml = await developmentSandboxResponse.text();
-if (!developmentSandboxResponse.ok || developmentSandboxResponse.headers.get("x-horizon-local-only") !== "true") {
-  fail("/api/development-sandbox is missing its local-only response boundary");
+const constellationResponse = await fetch(`${BASE}/api/constellation`);
+const constellationHtml = await constellationResponse.text();
+if (!constellationResponse.ok || constellationResponse.headers.get("x-horizon-constellation-source") !== "bundled") {
+  fail("/api/constellation did not serve the bundled workspace");
 }
-if (!developmentSandboxHtml.includes("Constellation")) {
-  fail("/api/development-sandbox did not return a usable local experiment or fallback");
+if (!constellationHtml.includes("Projects · Notes · Relationships")) {
+  fail("/api/constellation did not return the Constellation workspace");
 }
-ok("/api/development-sandbox serves a Git-ignored local experiment boundary");
+const constellationAlias = await fetch(`${BASE}/api/development-sandbox`);
+if (!constellationAlias.ok) fail("legacy Constellation route did not remain compatible");
+ok("/api/constellation serves the bundled workspace and preserves the legacy route");
 
 const items = await (await fetch(`${BASE}/api/items`)).json();
 const list = Array.isArray(items) ? items : items.items;
@@ -144,6 +146,9 @@ ok(`/api/research/papers returned ${papers.papers.length} paper(s) with labeled 
 // Research ideas endpoint; an empty result is valid.
 const ideas = await (await fetch(`${BASE}/api/research/ideas`)).json();
 if (!Array.isArray(ideas.ideas)) fail("/api/research/ideas did not return an ideas array");
+if (ideas.ideas.some((idea) => typeof idea.body !== "string" || !Array.isArray(idea.connectedPaperRefs))) {
+  fail("/api/research/ideas omitted sticky body or persistent paper references");
+}
 ok(`/api/research/ideas returned ${ideas.ideas.length} idea(s)`);
 
 const emptyIdea = await fetch(`${BASE}/api/research/ideas`, {
@@ -153,6 +158,73 @@ const emptyIdea = await fetch(`${BASE}/api/research/ideas`, {
 });
 if (emptyIdea.status !== 400) fail(`/api/research/ideas should reject an empty sticky with 400, got ${emptyIdea.status}`);
 ok("/api/research/ideas rejects an empty sticky without writing a note");
+
+// A temporary sticky exercises the complete persistence lifecycle. It is always deleted
+// before a failure is reported, so smoke never leaves test material in the active vault.
+const smokePaper = papers.papers.find((paper) => (
+  (paper.doi && paper.doi !== "unknown") || paper.zoteroKey || paper.path
+));
+const smokePaperRef = smokePaper
+  ? smokePaper.doi && smokePaper.doi !== "unknown"
+    ? `doi:${smokePaper.doi.toLowerCase()}`
+    : smokePaper.zoteroKey
+      ? `zotero:${smokePaper.zoteroKey}`
+      : `vault:${String(smokePaper.path).replaceAll("\\", "/")}`
+  : "";
+const smokeStickyText = `Horizon smoke sticky ${Date.now()}`;
+let smokeStickyPath = "";
+let smokeStickyError = "";
+try {
+  const createResponse = await fetch(`${BASE}/api/research/ideas`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ body: smokeStickyText }),
+  });
+  const created = await createResponse.json();
+  if (!createResponse.ok || !created.idea?.path) throw new Error("temporary sticky could not be created");
+  smokeStickyPath = created.idea.path;
+
+  const editedBody = `${smokeStickyText} edited`;
+  const patchResponse = await fetch(`${BASE}/api/research/ideas`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      body: editedBody,
+      connectedPaperRefs: smokePaperRef ? [smokePaperRef] : [],
+      path: smokeStickyPath,
+    }),
+  });
+  const patched = await patchResponse.json();
+  if (!patchResponse.ok || patched.idea?.body !== editedBody) throw new Error("temporary sticky edit was not persisted");
+  if (smokePaperRef && !patched.idea.connectedPaperRefs?.includes(smokePaperRef)) {
+    throw new Error("temporary sticky paper connection was not persisted");
+  }
+
+  const refreshed = await (await fetch(`${BASE}/api/research/ideas`)).json();
+  const reloadedSticky = refreshed.ideas?.find((idea) => idea.path === smokeStickyPath);
+  if (!reloadedSticky || reloadedSticky.body !== editedBody) throw new Error("temporary sticky did not survive an API reload");
+  if (smokePaperRef && !reloadedSticky.connectedPaperRefs?.includes(smokePaperRef)) {
+    throw new Error("temporary sticky paper connection did not survive an API reload");
+  }
+} catch (error) {
+  smokeStickyError = error instanceof Error ? error.message : String(error);
+} finally {
+  if (smokeStickyPath) {
+    try {
+      const deleteResponse = await fetch(`${BASE}/api/research/ideas`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: smokeStickyPath }),
+      });
+      const deleted = await deleteResponse.json();
+      if (!deleteResponse.ok || !deleted.ok) smokeStickyError ||= "temporary sticky could not be deleted";
+    } catch (error) {
+      smokeStickyError ||= error instanceof Error ? error.message : String(error);
+    }
+  }
+}
+if (smokeStickyError) fail(`/api/research/ideas persistence lifecycle failed: ${smokeStickyError}`);
+ok(`/api/research/ideas persists edits${smokePaperRef ? " and paper connections" : ""}, reloads them, and deletes cleanly`);
 
 const projects = await (await fetch(`${BASE}/api/projects`)).json();
 if (!Array.isArray(projects.projects)) fail("/api/projects did not return a projects array");

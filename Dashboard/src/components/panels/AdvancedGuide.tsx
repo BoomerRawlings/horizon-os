@@ -387,7 +387,7 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
         </div>
         <p>
           The sidebar order is <Term>Home, Calendar, Projects, Constellation, Focus, Research, Workbench, Files, Sandbox</Term>, followed by integrations.
-          Sandbox is a placeholder today; Constellation is a local-only experiment surface. Press <Term>Esc</Term> from a full workspace to return Home; Esc closes open
+          Sandbox is a placeholder today; Constellation maps projects, their notes, and deliberate relationships. Press <Term>Esc</Term> from a full workspace to return Home; Esc closes open
           panels first.
         </p>
         <p className="text-slate-500">

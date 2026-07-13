@@ -1,0 +1,1622 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Constellation</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --cyan: 103, 232, 249;
+      --panel: rgba(6, 17, 30, 0.88);
+      --line: rgba(148, 204, 255, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      background: #020711;
+      color: #e7f3ff;
+      user-select: none;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid rgba(var(--cyan), 0.72);
+      outline-offset: 3px;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: 58px minmax(0, 1fr);
+      width: 100%;
+      height: 100%;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(56, 189, 248, 0.14), transparent 28%),
+        radial-gradient(circle at 84% 74%, rgba(139, 92, 246, 0.11), transparent 34%),
+        radial-gradient(circle at 52% 48%, rgba(14, 116, 144, 0.055), transparent 42%),
+        #020711;
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      background: linear-gradient(90deg, rgba(4, 13, 24, 0.98), rgba(5, 16, 29, 0.94));
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.24);
+    }
+
+    .title-lockup { min-width: 170px; margin-right: auto; }
+    .eyebrow {
+      color: rgba(var(--cyan), 0.72);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.17em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 2px 0 0; font-size: 15px; font-weight: 640; letter-spacing: 0.01em; }
+
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      width: min(260px, 24vw);
+      height: 36px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.035);
+      padding: 0 10px;
+    }
+    .search-wrap svg { width: 15px; flex: none; color: #60728a; }
+    .search-wrap input {
+      width: 100%;
+      min-width: 0;
+      height: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #e8f4ff;
+      padding-left: 8px;
+      font-size: 12px;
+    }
+    .search-wrap input::placeholder { color: #52627a; }
+
+    .tool-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      height: 36px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.035);
+      padding: 0 11px;
+      font-size: 11px;
+      color: #b8c7d9;
+      cursor: pointer;
+      transition: 160ms ease;
+      white-space: nowrap;
+    }
+    .tool-button:hover { border-color: rgba(var(--cyan), 0.28); background: rgba(var(--cyan), 0.07); color: white; }
+    .tool-button.active { border-color: rgba(var(--cyan), 0.42); background: rgba(var(--cyan), 0.13); color: #dffbff; }
+    .tool-button.primary { border-color: rgba(var(--cyan), 0.3); background: rgba(var(--cyan), 0.1); color: #e9fdff; }
+    .tool-button svg { width: 14px; height: 14px; }
+
+    .viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      background:
+        radial-gradient(circle at 14% 22%, rgba(226, 242, 255, 0.58) 0 1px, transparent 1.7px),
+        radial-gradient(circle at 33% 68%, rgba(125, 211, 252, 0.42) 0 1.1px, transparent 1.8px),
+        radial-gradient(circle at 54% 17%, rgba(226, 242, 255, 0.5) 0 1px, transparent 1.7px),
+        radial-gradient(circle at 76% 61%, rgba(125, 211, 252, 0.4) 0 1.2px, transparent 1.9px),
+        radial-gradient(circle at 91% 28%, rgba(226, 242, 255, 0.52) 0 1px, transparent 1.7px),
+        #020711;
+      background-size: auto;
+    }
+    .viewport.panning { cursor: grabbing; }
+    .viewport:focus-visible { outline: 1px solid rgba(var(--cyan), 0.42); outline-offset: -1px; }
+    .viewport::before {
+      content: "";
+      position: absolute;
+      inset: -20%;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.72;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,.72) 0 1px, transparent 1.5px),
+        radial-gradient(circle, rgba(125,211,252,.58) 0 1px, transparent 1.6px),
+        radial-gradient(circle, rgba(196,181,253,.42) 0 1px, transparent 1.5px);
+      background-position: 0 0, 31px 47px, 79px 18px;
+      background-size: 127px 113px, 181px 167px, 233px 211px;
+      transform: rotate(-3deg);
+    }
+    .viewport::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: 18;
+      pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 48%, rgba(1, 4, 11, 0.34) 100%);
+    }
+
+    .world {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 6400px;
+      height: 4200px;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .orbit-layer, .edge-layer, .node-layer { position: absolute; inset: 0; width: 6400px; height: 4200px; }
+    .orbit-layer, .edge-layer { overflow: visible; pointer-events: none; }
+    .orbit-layer { z-index: 1; }
+    .edge-layer { overflow: visible; pointer-events: none; }
+    .edge-layer { z-index: 2; }
+    .node-layer { z-index: 4; }
+    .system-orbit {
+      fill: none;
+      stroke: rgba(125, 211, 252, 0.115);
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+    }
+    .system-orbit:nth-child(even) { stroke: rgba(167, 139, 250, 0.105); }
+    .moon-orbit {
+      fill: none;
+      stroke: rgba(226, 242, 255, 0.14);
+      stroke-width: 1.4;
+      stroke-dasharray: 4 8;
+      vector-effect: non-scaling-stroke;
+    }
+    .system-core {
+      position: absolute;
+      z-index: 3;
+      display: grid;
+      width: 270px;
+      height: 270px;
+      place-items: center;
+      border-radius: 50%;
+      color: rgba(224, 247, 255, 0.9);
+      text-align: center;
+      transform: translate(-50%, -50%);
+      background:
+        radial-gradient(circle at 50% 48%, rgba(240, 253, 255, 0.98) 0 3%, rgba(103, 232, 249, 0.58) 8%, rgba(14, 116, 144, 0.24) 28%, transparent 68%);
+      box-shadow: 0 0 120px rgba(34, 211, 238, 0.16);
+      pointer-events: none;
+    }
+    .system-core span { font-size: 18px; font-weight: 650; letter-spacing: .22em; text-shadow: 0 0 24px rgba(165,243,252,.7); }
+    .system-core small { display: block; margin-top: 8px; color: rgba(148, 199, 218, 0.7); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
+    .edge {
+      fill: none;
+      stroke: rgba(125, 211, 252, 0.26);
+      stroke-width: 2;
+      vector-effect: non-scaling-stroke;
+      transition: opacity 180ms ease, stroke 180ms ease;
+    }
+    .edge.registry { stroke: rgba(125, 211, 252, 0.24); stroke-dasharray: 5 7; }
+    .edge.custom { stroke: rgba(167, 139, 250, 0.38); }
+    .edge.dimmed { opacity: 0.07; }
+
+    .graph-node {
+      position: absolute;
+      display: grid;
+      place-items: stretch;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      text-align: left;
+      cursor: grab;
+      transform: translate3d(-50%, -50%, 0);
+      transition: filter 180ms ease, opacity 180ms ease;
+      touch-action: none;
+    }
+    .graph-node:active { cursor: grabbing; }
+    .graph-node.dimmed { opacity: 0.13; filter: saturate(0.35); }
+    .graph-node.link-source .node-surface { box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.62), 0 0 38px rgba(139, 92, 246, 0.28); }
+    .graph-node.selected .node-surface { box-shadow: 0 0 0 2px rgba(var(--cyan), 0.7), 0 0 44px rgba(var(--cyan), 0.23); }
+    .graph-node.drop-target .node-surface { box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.82), 0 0 58px rgba(139, 92, 246, 0.42); filter: brightness(1.14); }
+    .graph-node.disconnect-target .node-surface { box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.82), 0 0 58px rgba(244, 63, 94, 0.34); filter: brightness(1.08); }
+    .graph-node.protected-target .node-surface { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.72), 0 0 48px rgba(245, 158, 11, 0.24); }
+    .project-node.retired { opacity: 0.56; filter: saturate(0.36); }
+
+    .project-node { width: 250px; height: 250px; }
+    .project-node .node-surface {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border: 1px solid hsla(var(--hue), 88%, 76%, 0.22);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 28% 25%, hsla(var(--hue), 92%, 82%, 0.15), transparent 24%),
+        radial-gradient(circle at 74% 72%, hsla(var(--hue), 88%, 62%, 0.12), transparent 31%),
+        linear-gradient(145deg, hsla(var(--hue), 60%, 18%, 0.91), rgba(5, 15, 28, 0.96));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.075),
+        inset 0 -18px 48px rgba(1, 5, 13, 0.32),
+        0 20px 55px rgba(0, 0, 0, 0.26),
+        0 0 44px hsla(var(--hue), 80%, 55%, 0.1);
+      padding: 40px 34px;
+      animation: planet-float 28s ease-in-out infinite alternate;
+      animation-delay: var(--delay);
+    }
+    .project-node .node-surface::before,
+    .project-node .node-surface::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      pointer-events: none;
+    }
+    .project-node .node-surface::before {
+      width: 118px; height: 74px; left: 20px; top: 8px;
+      background: radial-gradient(circle, hsla(var(--hue), 90%, 80%, 0.08), transparent 69%);
+      filter: blur(2px);
+    }
+    .project-node .node-surface::after {
+      width: 142px; height: 84px; right: 8px; bottom: 2px;
+      background: radial-gradient(circle, hsla(var(--hue), 84%, 63%, 0.07), transparent 70%);
+      filter: blur(3px);
+    }
+    .node-kicker {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: hsla(var(--hue), 92%, 80%, 0.8);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .node-kicker-dot { width: 5px; height: 5px; border-radius: 999px; background: currentColor; box-shadow: 0 0 10px currentColor; }
+    .project-title {
+      position: relative;
+      z-index: 1;
+      margin-top: 7px;
+      color: white;
+      font-size: 18px;
+      font-weight: 650;
+      line-height: 1.18;
+      letter-spacing: -0.015em;
+    }
+    .project-meta, .project-summary { position: relative; z-index: 1; }
+    .project-meta { margin-top: 7px; color: #91a3b9; font-size: 10px; }
+    .project-summary {
+      display: -webkit-box;
+      margin-top: 7px;
+      overflow: hidden;
+      color: #aebdd0;
+      font-size: 10px;
+      line-height: 1.45;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .note-node { width: 118px; height: 118px; }
+    .note-node .node-surface {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border: 1px solid rgba(148, 204, 255, 0.17);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 32% 28%, rgba(226, 242, 255, 0.16), transparent 24%),
+        radial-gradient(circle at 68% 72%, rgba(71, 85, 105, 0.22), transparent 34%),
+        linear-gradient(135deg, rgba(21, 40, 61, 0.96), rgba(6, 16, 29, 0.98));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055), 0 16px 38px rgba(0, 0, 0, 0.25);
+      padding: 20px 16px;
+      animation: satellite-float 22s ease-in-out infinite alternate;
+      animation-delay: var(--delay);
+    }
+    .note-node.custom .node-surface { border-color: rgba(167, 139, 250, 0.3); }
+    .note-node.idea .node-surface {
+      border-radius: 46% 54% 62% 38% / 42% 48% 52% 58%;
+      background: radial-gradient(circle at 34% 28%, rgba(251,191,36,.22), transparent 22%), linear-gradient(145deg, rgba(75,50,18,.94), rgba(24,18,12,.98));
+    }
+    .note-node.area .node-surface {
+      border-radius: 42% 58% 45% 55% / 56% 44% 60% 40%;
+      background: radial-gradient(circle at center, rgba(196,181,253,.3), rgba(76,29,149,.28) 40%, rgba(15,12,34,.98) 74%);
+      box-shadow: 0 0 46px rgba(139,92,246,.16), inset 0 0 26px rgba(196,181,253,.08);
+    }
+    .note-type { color: #6f859e; font-size: 8px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+    .note-title { margin-top: 5px; overflow: hidden; color: #dbeafe; font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+    .note-detail { margin-top: 5px; overflow: hidden; color: #71839a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+
+    .surface-detail { display: none; position: relative; z-index: 2; margin-top: 12px; color: rgba(226,242,255,.82); font-size: 9px; line-height: 1.5; }
+    body[data-detail="galaxy"] .zoom-context,
+    body[data-detail="galaxy"] .zoom-detail,
+    body[data-detail="galaxy"] .node-kicker,
+    body[data-detail="galaxy"] .note-type,
+    body[data-detail="orbit"] .zoom-detail,
+    body[data-detail="orbit"] .surface-detail,
+    body[data-detail="context"] .surface-detail { display: none; }
+    body[data-detail="galaxy"] .project-title { font-size: 24px; text-shadow: 0 0 18px rgba(255,255,255,.28); }
+    body[data-detail="galaxy"] .note-node { opacity: 0.82; }
+    body[data-detail="galaxy"] .note-title { font-size: 15px; }
+    body[data-detail="galaxy"] .project-node .node-surface { border-width: 2px; }
+    body[data-detail="surface"] .graph-node:not(.selected) { opacity: .16; }
+    body[data-detail="surface"] .graph-node.selected .surface-detail { display: block; }
+    body[data-detail="surface"] .graph-node.selected .node-surface { box-shadow: 0 0 0 2px rgba(var(--cyan),.72), 0 0 86px rgba(var(--cyan),.28), inset 0 0 55px rgba(255,255,255,.055); }
+
+    .inspector {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      z-index: 25;
+      width: min(304px, calc(100% - 32px));
+      max-height: calc(100% - 32px);
+      overflow-y: auto;
+      border: 1px solid rgba(125, 211, 252, 0.18);
+      border-radius: 18px;
+      background: rgba(5, 15, 27, 0.94);
+      box-shadow: 0 26px 78px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(18px);
+      padding: 16px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate3d(12px, 0, 0) scale(0.985);
+      transition: 220ms ease;
+      scrollbar-width: none;
+    }
+    .inspector::-webkit-scrollbar { width: 0; }
+    .inspector.open { opacity: 1; pointer-events: auto; transform: none; }
+    .inspector-head { display: flex; align-items: flex-start; gap: 10px; }
+    .inspector-icon { display: grid; width: 36px; height: 36px; flex: none; place-items: center; border: 1px solid rgba(var(--cyan), 0.18); border-radius: 12px; background: rgba(var(--cyan), 0.08); color: #a5f3fc; }
+    .inspector h2 { margin: 0; font-size: 16px; line-height: 1.25; }
+    .inspector-subtitle { margin-top: 3px; color: #6f8299; font-size: 10px; }
+    .close-button { display: grid; width: 30px; height: 30px; margin-left: auto; place-items: center; border: 0; border-radius: 9px; background: transparent; color: #71839a; cursor: pointer; }
+    .close-button:hover { background: rgba(255, 255, 255, 0.05); color: white; }
+    .inspector-copy { margin: 14px 0 0; color: #a9b8ca; font-size: 11px; line-height: 1.55; user-select: text; }
+    .property-list { display: grid; gap: 8px; margin-top: 14px; }
+    .property { border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 11px; background: rgba(255, 255, 255, 0.025); padding: 9px 10px; }
+    .property-label { color: #53657c; font-size: 8px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    .property-value { margin-top: 4px; overflow-wrap: anywhere; color: #c8d5e4; font-size: 10px; line-height: 1.4; user-select: text; }
+    .connection-list { display: grid; gap: 6px; margin-top: 8px; }
+    .connection-row { display: flex; min-width: 0; align-items: center; gap: 7px; border-top: 1px solid rgba(255, 255, 255, 0.055); padding-top: 7px; }
+    .connection-name { min-width: 0; flex: 1; overflow: hidden; color: #b9c8d9; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .connection-kind { flex: none; color: #65778e; font-size: 8px; }
+    .disconnect-button { flex: none; height: 24px; border: 1px solid rgba(251, 113, 133, 0.18); border-radius: 7px; background: rgba(251, 113, 133, 0.055); padding: 0 7px; color: #fda4af; font-size: 8px; cursor: pointer; }
+    .disconnect-button:hover { border-color: rgba(251, 113, 133, 0.42); background: rgba(251, 113, 133, 0.1); color: #ffe4e6; }
+    .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+    .inspector-actions button { min-width: 0; height: 35px; border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; background: rgba(255, 255, 255, 0.035); color: #b9c7d8; font-size: 10px; cursor: pointer; }
+    .inspector-actions button:hover { border-color: rgba(var(--cyan), 0.28); color: white; }
+    .inspector-actions button.danger:hover { border-color: rgba(251, 113, 133, 0.34); color: #fecdd3; }
+
+    .zoom-controls, .legend, .canvas-hint {
+      position: absolute;
+      z-index: 22;
+      border: 1px solid rgba(255, 255, 255, 0.075);
+      background: rgba(4, 13, 24, 0.83);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(14px);
+    }
+    .zoom-controls { left: 14px; bottom: 14px; display: flex; align-items: center; gap: 4px; height: 38px; border-radius: 12px; padding: 4px; }
+    .zoom-controls button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #8fa1b7; cursor: pointer; }
+    .zoom-controls button:hover { background: rgba(255,255,255,.05); color: white; }
+    .zoom-readout { width: 45px; color: #74879f; font-size: 9px; text-align: center; }
+    .legend { right: 14px; bottom: 14px; display: flex; gap: 12px; border-radius: 11px; padding: 9px 11px; color: #6e8097; font-size: 9px; }
+    .legend span { display: flex; align-items: center; gap: 5px; }
+    .legend i { width: 7px; height: 7px; border-radius: 99px; background: #67e8f9; box-shadow: 0 0 8px rgba(103,232,249,.4); }
+    .legend span:last-child i { border-radius: 2px; background: #a78bfa; box-shadow: 0 0 8px rgba(167,139,250,.4); }
+    .canvas-hint { left: 50%; bottom: 14px; border-radius: 11px; padding: 9px 12px; color: #708298; font-size: 9px; transform: translateX(-50%); pointer-events: none; }
+
+    .context-menu {
+      position: absolute;
+      z-index: 30;
+      display: none;
+      min-width: 184px;
+      overflow: hidden;
+      border: 1px solid rgba(125, 211, 252, 0.2);
+      border-radius: 12px;
+      background: rgba(4, 14, 26, 0.97);
+      padding: 5px;
+      box-shadow: 0 22px 44px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(18px);
+    }
+    .context-menu.open { display: grid; }
+    .context-menu button {
+      display: flex;
+      min-height: 31px;
+      align-items: center;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      padding: 0 9px;
+      color: #bdcce0;
+      cursor: pointer;
+      font-size: 10px;
+      text-align: left;
+    }
+    .context-menu button:hover { background: rgba(var(--cyan), 0.1); color: white; }
+    .context-menu button.danger:hover { background: rgba(251, 113, 133, 0.1); color: #fecdd3; }
+
+    .toast {
+      position: absolute;
+      left: 50%;
+      top: 14px;
+      z-index: 40;
+      max-width: min(520px, calc(100% - 32px));
+      border: 1px solid rgba(var(--cyan), 0.2);
+      border-radius: 12px;
+      background: rgba(7, 20, 34, 0.96);
+      box-shadow: 0 18px 48px rgba(0,0,0,.35);
+      padding: 10px 14px;
+      color: #c9eaf2;
+      font-size: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -8px);
+      transition: 200ms ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    dialog {
+      width: min(420px, calc(100vw - 32px));
+      border: 1px solid rgba(125, 211, 252, 0.2);
+      border-radius: 18px;
+      background: #071421;
+      color: #e7f3ff;
+      box-shadow: 0 34px 100px rgba(0,0,0,.6);
+      padding: 0;
+    }
+    dialog::backdrop { background: rgba(0, 4, 12, 0.65); backdrop-filter: blur(5px); }
+    .dialog-body { padding: 20px; }
+    .dialog-body h2 { margin: 0; font-size: 18px; }
+    .dialog-body > p { margin: 6px 0 0; color: #71839a; font-size: 11px; line-height: 1.5; }
+    .form-grid { display: grid; gap: 12px; margin-top: 18px; }
+    label { display: grid; gap: 6px; color: #7c8ea4; font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    input, textarea, select { width: 100%; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.035); color: #eef7ff; padding: 10px 11px; font-size: 11px; text-transform: none; letter-spacing: 0; }
+    textarea { min-height: 82px; resize: vertical; }
+    select option { background: #071421; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .dialog-actions button { height: 36px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(255,255,255,.035); padding: 0 14px; color: #b9c7d8; font-size: 11px; cursor: pointer; }
+    .dialog-actions .create { border-color: rgba(var(--cyan),.3); background: rgba(var(--cyan),.1); color: white; }
+
+    .empty-state { position: absolute; left: 50%; top: 50%; z-index: 10; width: min(460px, calc(100% - 36px)); text-align: center; transform: translate(-50%, -50%); }
+    .empty-state h2 { margin: 0; font-size: 19px; }
+    .empty-state p { color: #708299; font-size: 11px; line-height: 1.6; }
+
+    @keyframes planet-float {
+      from { transform: translate3d(-2px, 1px, 0) rotate(-0.35deg); }
+      to { transform: translate3d(3px, -3px, 0) rotate(0.45deg); }
+    }
+    @keyframes satellite-float {
+      from { transform: translate3d(0, 2px, 0); }
+      to { transform: translate3d(-2px, -2px, 0); }
+    }
+    @media (max-width: 920px) {
+      .title-lockup { min-width: 145px; }
+      .search-wrap { width: min(180px, 24vw); }
+      .tool-button span { display: none; }
+      .tool-button { width: 36px; padding: 0; }
+      .legend, .canvas-hint { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body data-detail="galaxy">
+  <main class="app">
+    <header class="topbar">
+      <div class="title-lockup">
+        <div class="eyebrow">Projects · Notes · Relationships</div>
+        <h1>Constellation</h1>
+      </div>
+      <label class="search-wrap" aria-label="Find a project or note">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16.5 16.5 4 4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/></svg>
+        <input id="search" type="search" placeholder="Find a project or note…" />
+      </label>
+      <button class="tool-button" id="fit-button" type="button" title="Fit all projects in view">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>
+        <span>Fit all</span>
+      </button>
+      <button class="tool-button" id="connect-button" type="button" title="Connect any two nodes">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="7" r="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m8.8 10.8 6.4-2.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+        <span>Connect</span>
+      </button>
+      <button class="tool-button" id="retired-button" type="button" title="Show retired projects" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M6 7v12h12V7M9 11h6" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7"/></svg>
+        <span id="retired-label">Retired</span>
+      </button>
+      <button class="tool-button primary" id="new-node-button" type="button" title="Create a Constellation node">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/></svg>
+        <span>New node</span>
+      </button>
+    </header>
+
+    <section class="viewport" id="viewport" aria-label="Project constellation canvas" tabindex="0">
+      <div class="world" id="world">
+        <svg class="orbit-layer" id="orbits" viewBox="0 0 6400 4200" aria-hidden="true"></svg>
+        <div class="system-core" style="left:3200px;top:2100px"><div><span>HORIZON</span><small>Everything in orbit</small></div></div>
+        <svg class="edge-layer" id="edges" viewBox="0 0 6400 4200" aria-hidden="true"></svg>
+        <div class="node-layer" id="nodes"></div>
+      </div>
+      <aside class="inspector" id="inspector" aria-live="polite"></aside>
+      <div class="zoom-controls" aria-label="Zoom controls">
+        <button id="zoom-out" type="button" title="Zoom out">−</button>
+        <div class="zoom-readout" id="zoom-readout">50%</div>
+        <button id="zoom-in" type="button" title="Zoom in">+</button>
+        <button id="reset-layout" type="button" title="Restore the generated layout">↺</button>
+      </div>
+      <div class="canvas-hint">Drag or use WASD to pan · wheel for deep zoom · right-click for controls · overlap bodies to connect or disconnect</div>
+      <div class="legend"><span><i></i>Project planet</span><span><i></i>Note moon / local asteroid</span></div>
+      <div class="toast" id="toast"></div>
+      <div class="context-menu" id="context-menu" role="menu" aria-label="Constellation controls"></div>
+      <div class="empty-state" id="empty-state" hidden>
+        <h2>The constellation could not load</h2>
+        <p>Horizon could not reach the Project Registry. Reload Constellation when the local server is available.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="new-node-dialog">
+    <form class="dialog-body" id="new-node-form" method="dialog">
+      <h2>Create a Constellation node</h2>
+      <p>This node and its connections stay in this browser profile. It will not create a vault note or enter Git.</p>
+      <div class="form-grid">
+        <label>Node type
+          <select id="node-kind"><option value="note">Note</option><option value="idea">Project idea</option><option value="area">Area / theme</option></select>
+        </label>
+        <label>Title<input id="node-title" maxlength="80" required placeholder="What belongs in the constellation?" /></label>
+        <label>Context<textarea id="node-detail" maxlength="360" placeholder="Why it matters, next thought, or relationship…"></textarea></label>
+        <label>Connect to project<select id="node-project"><option value="">No automatic connection</option></select></label>
+      </div>
+      <div class="dialog-actions">
+        <button id="cancel-node" type="button">Cancel</button>
+        <button class="create" type="submit">Create node</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const STORAGE_KEY = "horizon.constellation.solar.v1";
+      const LEGACY_STORAGE_KEYS = [
+        "horizon-development-sandbox.project-constellation.solar.v2",
+        "horizon-development-sandbox.project-constellation.v1",
+      ];
+      const SCENE = { width: 6400, height: 4200, centerX: 3200, centerY: 2100 };
+      const SYSTEM_RINGS = [720, 1260, 1810];
+      const RING_CAPACITY = [4, 7, 10];
+      const MOON_RADII = [250, 290, 330, 370];
+      const HUES = [190, 258, 154, 34, 216, 326, 182, 278, 48, 204];
+
+      const viewportEl = document.getElementById("viewport");
+      const worldEl = document.getElementById("world");
+      const nodesEl = document.getElementById("nodes");
+      const orbitsEl = document.getElementById("orbits");
+      const edgesEl = document.getElementById("edges");
+      const inspectorEl = document.getElementById("inspector");
+      const toastEl = document.getElementById("toast");
+      const contextMenuEl = document.getElementById("context-menu");
+      const emptyStateEl = document.getElementById("empty-state");
+      const zoomReadoutEl = document.getElementById("zoom-readout");
+      const connectButton = document.getElementById("connect-button");
+      const retiredButton = document.getElementById("retired-button");
+      const retiredLabel = document.getElementById("retired-label");
+      const searchInput = document.getElementById("search");
+      const newNodeDialog = document.getElementById("new-node-dialog");
+      const nodeProjectSelect = document.getElementById("node-project");
+
+      let allProjects = [];
+      let projects = [];
+      let nodes = [];
+      let connections = [];
+      let selectedId = null;
+      let connectFrom = null;
+      let connecting = false;
+      let showRetired = false;
+      let query = "";
+      let toastTimer = null;
+      let contextNodeId = "";
+      let keyboardPanFrame = 0;
+      let viewport = { x: 0, y: 0, scale: 0.18 };
+      let savedState = loadState();
+      const keyboardPanKeys = new Set();
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function slug(value) {
+        return String(value || "node").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 64) || "node";
+      }
+
+      function loadState() {
+        try {
+          const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+          if (current && typeof current === "object") return current;
+          for (const legacyKey of LEGACY_STORAGE_KEYS) {
+            const legacy = JSON.parse(localStorage.getItem(legacyKey) || "null");
+            if (legacy && typeof legacy === "object") {
+              return {
+                customNodes: legacy.customNodes || [],
+                customConnections: legacy.customConnections || [],
+                positions: legacy.positions || {},
+                viewport: legacy.viewport,
+                layoutVersion: 2,
+              };
+            }
+          }
+          return { layoutVersion: 2 };
+        } catch {
+          return { layoutVersion: 2 };
+        }
+      }
+
+      function saveState() {
+        const positions = Object.fromEntries(nodes.map((node) => [node.id, { x: Math.round(node.x), y: Math.round(node.y) }]));
+        const customNodes = nodes.filter((node) => node.custom).map(({ id, kind, title, detail, projectId, x, y }) => ({ id, kind, title, detail, projectId, x, y }));
+        const customConnections = connections.filter((connection) => connection.custom);
+        savedState = { layoutVersion: 2, positions, customNodes, customConnections, viewport: { ...viewport } };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(savedState));
+      }
+
+      function showToast(message, duration = 2500) {
+        window.clearTimeout(toastTimer);
+        toastEl.textContent = message;
+        toastEl.classList.add("show");
+        toastTimer = window.setTimeout(() => toastEl.classList.remove("show"), duration);
+      }
+
+      function closeContextMenu() {
+        contextMenuEl.classList.remove("open");
+        contextNodeId = "";
+      }
+
+      function openContextMenu(event, node) {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest(".inspector, .zoom-controls, .context-menu")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        viewportEl.focus({ preventScroll: true });
+        contextNodeId = node?.id || "";
+        const items = [];
+        if (!node) {
+          items.push(
+            { action: "new-node", label: "New local node" },
+            { action: "fit-all", label: "Fit constellation" },
+            { action: "restore-layout", label: "Restore generated layout" },
+            { action: "toggle-retired", label: showRetired ? "Hide retired projects" : "Show retired projects" },
+          );
+        } else {
+          items.push(
+            { action: "focus-node", label: "Focus node" },
+            { action: "connect-from", label: "Connect from here" },
+            { action: "new-connected", label: "New connected node" },
+          );
+          if (node.path) items.push({ action: "open-note", label: "Open note" });
+          if (node.kind === "project" && node.location) items.push({ action: "open-workspace", label: "Open workspace" });
+          if (node.kind === "project") {
+            items.push({
+              action: isRetiredStatus(node.status) ? "restore-project" : "retire-project",
+              danger: !isRetiredStatus(node.status),
+              label: isRetiredStatus(node.status) ? "Restore project" : "Retire project",
+            });
+          } else if (node.custom) {
+            items.push({ action: "delete-local", danger: true, label: "Remove local node" });
+          }
+        }
+        contextMenuEl.innerHTML = items.map((item) =>
+          '<button type="button" data-menu-action="' + item.action + '"' + (item.danger ? ' class="danger"' : "") + '>' + item.label + "</button>",
+        ).join("");
+        const rect = viewportEl.getBoundingClientRect();
+        const menuWidth = 210;
+        const menuHeight = Math.min(rect.height - 24, items.length * 37 + 10);
+        contextMenuEl.style.left = Math.max(12, Math.min(rect.width - menuWidth - 12, event.clientX - rect.left)) + "px";
+        contextMenuEl.style.top = Math.max(12, Math.min(rect.height - menuHeight - 12, event.clientY - rect.top)) + "px";
+        contextMenuEl.classList.add("open");
+      }
+
+      function focusNode(node) {
+        if (!node) return;
+        selectedId = node.id;
+        renderNodes();
+        renderInspector();
+        zoomToNode(node.id);
+      }
+
+      function startConnectionFrom(node) {
+        if (!node) return;
+        selectedId = node.id;
+        connecting = true;
+        connectFrom = node.id;
+        connectButton.classList.add("active");
+        renderNodes();
+        renderInspector();
+        showToast("Choose another node to connect.");
+      }
+
+      function requestProjectRetirement(node) {
+        if (!node) return;
+        if (isRetiredStatus(node.status)) {
+          void updateProjectStatus(node, "active");
+          return;
+        }
+        if (window.confirm('Retire "' + node.title + '"? It can be restored later from Constellation.')) {
+          void updateProjectStatus(node, "retired");
+        }
+      }
+
+      contextMenuEl.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-menu-action]") : null;
+        const action = target?.dataset.menuAction;
+        if (!action) return;
+        const node = nodes.find((item) => item.id === contextNodeId);
+        closeContextMenu();
+        if (action === "new-node") { openNewNodeDialog(); return; }
+        if (action === "fit-all") { fitAll(); return; }
+        if (action === "restore-layout") { restoreGeneratedLayout(); return; }
+        if (action === "toggle-retired") { toggleRetiredProjects(); return; }
+        if (action === "focus-node") { focusNode(node); return; }
+        if (action === "connect-from") { startConnectionFrom(node); return; }
+        if (action === "new-connected") {
+          selectedId = node?.id || null;
+          openNewNodeDialog();
+          return;
+        }
+        if (action === "open-note" && node?.path) { void openRegistryNote(node.path); return; }
+        if (action === "open-workspace" && node?.projectRecordId) { void openProjectWorkspace(node.projectRecordId); return; }
+        if (action === "retire-project" || action === "restore-project") { requestProjectRetirement(node); return; }
+        if (action === "delete-local" && node?.custom && window.confirm('Remove local node "' + node.title + '"? This only affects this browser profile.')) {
+          deleteCustomNode(node.id);
+        }
+      });
+
+      function nodeSize(node) {
+        return node.kind === "project" ? { width: 250, height: 250 } : { width: 118, height: 118 };
+      }
+
+      function isRetiredStatus(status) {
+        return /^(retired|frozen-archive)$/i.test(String(status || "").trim());
+      }
+
+      function orbitalProjectPosition(index) {
+        let ringIndex = 0;
+        let slot = index;
+        while (ringIndex < RING_CAPACITY.length - 1 && slot >= RING_CAPACITY[ringIndex]) {
+          slot -= RING_CAPACITY[ringIndex];
+          ringIndex += 1;
+        }
+        const capacity = RING_CAPACITY[ringIndex];
+        const angle = -Math.PI / 2 + (slot / capacity) * Math.PI * 2 + ringIndex * 0.16;
+        const radius = SYSTEM_RINGS[ringIndex];
+        return {
+          angle,
+          ringIndex,
+          x: SCENE.centerX + Math.cos(angle) * radius,
+          y: SCENE.centerY + Math.sin(angle) * radius,
+        };
+      }
+
+      function buildGraph(records) {
+        const positions = savedState.positions || {};
+        const generatedNodes = [];
+        const generatedConnections = [];
+        const duplicateNames = new Set(records
+          .map((project) => String(project.name || "").toLowerCase())
+          .filter((name, index, allNames) => name && allNames.indexOf(name) !== index));
+
+        records.forEach((project, index) => {
+          const projectId = `project:${slug(project.id || project.name)}`;
+          const noteId = `registry-note:${slug(project.path || project.id || project.name)}`;
+          const orbitalHome = orbitalProjectPosition(index);
+          const projectPosition = positions[projectId] || orbitalHome;
+          const moonAngle = orbitalHome.angle + 0.72 + (index % 3) * 0.62;
+          const moonRadius = MOON_RADII[index % MOON_RADII.length];
+          const notePosition = positions[noteId] || {
+            x: projectPosition.x + Math.cos(moonAngle) * moonRadius,
+            y: projectPosition.y + Math.sin(moonAngle) * moonRadius,
+          };
+          const displayName = duplicateNames.has(String(project.name || "").toLowerCase()) && project.id && project.id !== project.name
+            ? project.id
+            : project.name;
+
+          generatedNodes.push({
+            id: projectId,
+            kind: "project",
+            title: displayName,
+            originalName: project.name,
+            detail: project.description || "Registered Horizon project",
+            status: project.status || "active",
+            location: project.location || "No workspace path",
+            path: project.path || "",
+            projectRecordId: project.id,
+            captures: Number(project.captures || 0),
+            hue: HUES[index % HUES.length],
+            orbitRing: orbitalHome.ringIndex,
+            x: projectPosition.x,
+            y: projectPosition.y,
+          });
+          generatedNodes.push({
+            id: noteId,
+            kind: "note",
+            title: project.path ? project.path.split(/[\\/]/).pop().replace(/\.md$/i, "") : `${project.name} registry note`,
+            detail: project.path || "Registry note",
+            path: project.path || "",
+            projectId,
+            orbitRadius: moonRadius,
+            x: notePosition.x,
+            y: notePosition.y,
+          });
+          generatedConnections.push({ id: `registry:${slug(project.id || project.name)}`, from: projectId, to: noteId, type: "registry", custom: false });
+        });
+
+        const customNodes = Array.isArray(savedState.customNodes) ? savedState.customNodes : [];
+        for (const custom of customNodes) {
+          const position = positions[custom.id] || custom;
+          generatedNodes.push({ ...custom, custom: true, x: Number(position.x || 1200), y: Number(position.y || 800) });
+        }
+        const customConnections = Array.isArray(savedState.customConnections) ? savedState.customConnections : [];
+        for (const connection of customConnections) {
+          if (generatedNodes.some((node) => node.id === connection.from) && generatedNodes.some((node) => node.id === connection.to)) {
+            generatedConnections.push({ ...connection, type: "custom", custom: true });
+          }
+        }
+
+        nodes = generatedNodes;
+        connections = generatedConnections;
+        renderOrbits();
+        renderNodes();
+        renderEdges();
+        populateProjectOptions();
+      }
+
+      function nodeMarkup(node, index) {
+        const selected = node.id === selectedId ? " selected" : "";
+        const linkSource = node.id === connectFrom ? " link-source" : "";
+        const retired = node.kind === "project" && isRetiredStatus(node.status) ? " retired" : "";
+        const delay = `${-((index * 2.7) % 18).toFixed(1)}s`;
+        if (node.kind === "project") {
+          return `<div class="graph-node project-node${retired}${selected}${linkSource}" data-node-id="${escapeHtml(node.id)}" role="button" tabindex="0" style="left:${node.x}px;top:${node.y}px;--hue:${node.hue};--delay:${delay}">
+            <div class="node-surface">
+              <div class="node-kicker"><span class="node-kicker-dot"></span>${escapeHtml(node.status)}</div>
+              <div class="project-title">${escapeHtml(node.title)}</div>
+              <div class="project-meta zoom-context">${escapeHtml(node.location)}</div>
+              <div class="project-summary zoom-detail">${escapeHtml(node.detail)}</div>
+              <div class="surface-detail"><strong>Surface detail</strong><br>${escapeHtml(node.detail)}<br><br>${node.captures || 0} attached capture${node.captures === 1 ? "" : "s"}</div>
+            </div>
+          </div>`;
+        }
+        const typeLabel = node.custom ? (node.kind === "idea" ? "Project idea" : node.kind === "area" ? "Area / theme" : "Constellation note") : "Registry note";
+        return `<div class="graph-node note-node ${escapeHtml(node.kind)}${node.custom ? " custom" : ""}${selected}${linkSource}" data-node-id="${escapeHtml(node.id)}" role="button" tabindex="0" style="left:${node.x}px;top:${node.y}px;--delay:${delay}">
+          <div class="node-surface">
+            <div class="note-type">${escapeHtml(typeLabel)}</div>
+            <div class="note-title">${escapeHtml(node.title)}</div>
+            <div class="note-detail zoom-context">${escapeHtml(node.detail || "Workspace node")}</div>
+            <div class="surface-detail">${escapeHtml(node.detail || "No additional surface detail recorded yet.")}</div>
+          </div>
+        </div>`;
+      }
+
+      function renderOrbits() {
+        const globalRings = SYSTEM_RINGS.map((radius) =>
+          `<circle class="system-orbit" cx="${SCENE.centerX}" cy="${SCENE.centerY}" r="${radius}" />`).join("");
+        const moonRings = nodes
+          .filter((node) => node.projectId)
+          .map((node) => {
+            const parent = nodes.find((candidate) => candidate.id === node.projectId);
+            if (!parent) return "";
+            const radius = Math.max(170, Math.min(520, Math.hypot(node.x - parent.x, node.y - parent.y)));
+            return `<circle class="moon-orbit" cx="${parent.x}" cy="${parent.y}" r="${radius}" />`;
+          })
+          .join("");
+        orbitsEl.innerHTML = globalRings + moonRings;
+      }
+
+      function renderNodes() {
+        nodesEl.innerHTML = nodes.map(nodeMarkup).join("");
+        nodesEl.querySelectorAll(".graph-node").forEach((element) => {
+          const id = element.dataset.nodeId;
+          element.addEventListener("pointerdown", (event) => startNodeDrag(event, id, element));
+          element.addEventListener("dblclick", (event) => {
+            event.preventDefault();
+            selectedId = id;
+            renderNodes();
+            renderInspector();
+            zoomToNode(id);
+          });
+          element.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              activateNode(id);
+            }
+          });
+        });
+        applySearch();
+      }
+
+      function renderEdges() {
+        edgesEl.innerHTML = connections.map((connection) => {
+          const from = nodes.find((node) => node.id === connection.from);
+          const to = nodes.find((node) => node.id === connection.to);
+          if (!from || !to) return "";
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const bend = Math.max(60, Math.min(220, Math.hypot(dx, dy) * 0.28));
+          const controlX1 = from.x + (Math.abs(dx) > Math.abs(dy) ? Math.sign(dx || 1) * bend : dx * 0.35);
+          const controlY1 = from.y + (Math.abs(dy) >= Math.abs(dx) ? Math.sign(dy || 1) * bend : dy * 0.25);
+          const controlX2 = to.x - (Math.abs(dx) > Math.abs(dy) ? Math.sign(dx || 1) * bend : dx * 0.35);
+          const controlY2 = to.y - (Math.abs(dy) >= Math.abs(dx) ? Math.sign(dy || 1) * bend : dy * 0.25);
+          const dimmed = query && (!nodeMatches(from, query) && !nodeMatches(to, query)) ? " dimmed" : "";
+          return `<path class="edge ${connection.type}${dimmed}" d="M ${from.x} ${from.y} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${to.x} ${to.y}" />`;
+        }).join("");
+      }
+
+      function nodeUnderPointer(clientX, clientY, draggedElement, draggedId) {
+        const previousPointerEvents = draggedElement.style.pointerEvents;
+        draggedElement.style.pointerEvents = "none";
+        const targetElement = document.elementFromPoint(clientX, clientY)?.closest(".graph-node");
+        draggedElement.style.pointerEvents = previousPointerEvents;
+        const targetId = targetElement?.dataset.nodeId || "";
+        return targetId && targetId !== draggedId ? { id: targetId, element: targetElement } : null;
+      }
+
+      function overlappingNodeTarget(draggedElement, draggedId) {
+        const draggedRect = draggedElement.getBoundingClientRect();
+        let bestTarget = null;
+        let bestOverlap = 0;
+        nodesEl.querySelectorAll(".graph-node").forEach((targetElement) => {
+          if (targetElement.dataset.nodeId === draggedId) return;
+          const targetRect = targetElement.getBoundingClientRect();
+          const overlapWidth = Math.max(0, Math.min(draggedRect.right, targetRect.right) - Math.max(draggedRect.left, targetRect.left));
+          const overlapHeight = Math.max(0, Math.min(draggedRect.bottom, targetRect.bottom) - Math.max(draggedRect.top, targetRect.top));
+          const overlap = overlapWidth * overlapHeight;
+          const minimumOverlap = Math.min(900, Math.min(draggedRect.width * draggedRect.height, targetRect.width * targetRect.height) * 0.08);
+          if (overlap >= minimumOverlap && overlap > bestOverlap) {
+            bestOverlap = overlap;
+            bestTarget = { id: targetElement.dataset.nodeId, element: targetElement };
+          }
+        });
+        return bestTarget;
+      }
+
+      function addLocalConnection(fromId, toId) {
+        if (!fromId || !toId || fromId === toId) return false;
+        const exists = connections.some((connection) =>
+          (connection.from === fromId && connection.to === toId) || (connection.from === toId && connection.to === fromId));
+        if (exists) return false;
+        connections.push({ id: `custom-edge:${Date.now()}`, from: fromId, to: toId, type: "custom", custom: true });
+        saveState();
+        return true;
+      }
+
+      function connectionBetween(fromId, toId) {
+        return connections.find((connection) =>
+          (connection.from === fromId && connection.to === toId) || (connection.from === toId && connection.to === fromId));
+      }
+
+      function removeLocalConnection(connectionId) {
+        const connection = connections.find((item) => item.id === connectionId);
+        if (!connection?.custom) return false;
+        connections = connections.filter((item) => item.id !== connectionId);
+        saveState();
+        renderEdges();
+        renderInspector();
+        return true;
+      }
+
+      function toggleDroppedConnection(fromId, toId) {
+        if (!fromId || !toId || fromId === toId) return "invalid";
+        const existing = connectionBetween(fromId, toId);
+        if (existing) {
+          if (!existing.custom) return "protected";
+          connections = connections.filter((connection) => connection.id !== existing.id);
+          saveState();
+          return "removed";
+        }
+        connections.push({ id: `custom-edge:${Date.now()}`, from: fromId, to: toId, type: "custom", custom: true });
+        saveState();
+        return "added";
+      }
+
+      function clearDropTargets() {
+        nodesEl.querySelectorAll(".drop-target, .disconnect-target, .protected-target").forEach((target) => {
+          target.classList.remove("drop-target", "disconnect-target", "protected-target");
+        });
+      }
+
+      function settleNode(node, element, initialVelocity) {
+        let vx = Math.max(-28, Math.min(28, initialVelocity.x || 0));
+        let vy = Math.max(-28, Math.min(28, initialVelocity.y || 0));
+        let frame = 0;
+        const token = Date.now();
+        node.physicsToken = token;
+
+        const step = () => {
+          if (node.physicsToken !== token) return;
+          const parent = node.projectId ? nodes.find((candidate) => candidate.id === node.projectId) : null;
+          const center = parent || SCENE;
+          const centerX = parent ? parent.x : SCENE.centerX;
+          const centerY = parent ? parent.y : SCENE.centerY;
+          const dx = node.x - centerX;
+          const dy = node.y - centerY;
+          const distance = Math.max(1, Math.hypot(dx, dy));
+          const targetRadius = parent
+            ? Math.max(210, Math.min(430, node.orbitRadius || distance))
+            : SYSTEM_RINGS.reduce((best, radius) => Math.abs(radius - distance) < Math.abs(best - distance) ? radius : best, SYSTEM_RINGS[0]);
+          const spring = (targetRadius - distance) * (parent ? 0.012 : 0.006);
+          vx += (dx / distance) * spring;
+          vy += (dy / distance) * spring;
+
+          for (const other of nodes) {
+            if (other.id === node.id) continue;
+            const ox = node.x - other.x;
+            const oy = node.y - other.y;
+            const od = Math.max(1, Math.hypot(ox, oy));
+            const minimum = (node.kind === "project" ? 155 : 82) + (other.kind === "project" ? 155 : 82);
+            if (od < minimum) {
+              const push = (minimum - od) * 0.018;
+              vx += (ox / od) * push;
+              vy += (oy / od) * push;
+            }
+          }
+
+          vx *= 0.9;
+          vy *= 0.9;
+          node.x = Math.max(90, Math.min(SCENE.width - 90, node.x + vx));
+          node.y = Math.max(90, Math.min(SCENE.height - 90, node.y + vy));
+          element.style.left = `${node.x}px`;
+          element.style.top = `${node.y}px`;
+          renderOrbits();
+          renderEdges();
+          frame += 1;
+          if (frame < 46 && Math.abs(vx) + Math.abs(vy) > 0.08) {
+            requestAnimationFrame(step);
+          } else {
+            saveState();
+          }
+        };
+        requestAnimationFrame(step);
+      }
+
+      function startNodeDrag(event, id, element) {
+        if (event.button !== 0) return;
+        event.stopPropagation();
+        const node = nodes.find((item) => item.id === id);
+        if (!node) return;
+        const start = { clientX: event.clientX, clientY: event.clientY, x: node.x, y: node.y };
+        let moved = false;
+        let dropTargetId = null;
+        let previousMove = { clientX: event.clientX, clientY: event.clientY, time: performance.now() };
+        let velocity = { x: 0, y: 0 };
+        node.physicsToken = 0;
+        element.setPointerCapture(event.pointerId);
+
+        const move = (moveEvent) => {
+          const dx = (moveEvent.clientX - start.clientX) / viewport.scale;
+          const dy = (moveEvent.clientY - start.clientY) / viewport.scale;
+          if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+          node.x = Math.max(80, Math.min(SCENE.width - 80, start.x + dx));
+          node.y = Math.max(60, Math.min(SCENE.height - 60, start.y + dy));
+          const now = performance.now();
+          const elapsed = Math.max(8, now - previousMove.time);
+          velocity = {
+            x: ((moveEvent.clientX - previousMove.clientX) / viewport.scale) * (16 / elapsed),
+            y: ((moveEvent.clientY - previousMove.clientY) / viewport.scale) * (16 / elapsed),
+          };
+          previousMove = { clientX: moveEvent.clientX, clientY: moveEvent.clientY, time: now };
+          element.style.left = `${node.x}px`;
+          element.style.top = `${node.y}px`;
+          clearDropTargets();
+          const target = nodeUnderPointer(moveEvent.clientX, moveEvent.clientY, element, id) || overlappingNodeTarget(element, id);
+          dropTargetId = target?.id || null;
+          if (target) {
+            const existing = connectionBetween(id, target.id);
+            target.element.classList.add(existing ? (existing.custom ? "disconnect-target" : "protected-target") : "drop-target");
+          }
+          renderOrbits();
+          renderEdges();
+        };
+        const end = () => {
+          element.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", end);
+          window.removeEventListener("pointercancel", end);
+          clearDropTargets();
+          if (!moved) {
+            activateNode(id);
+            return;
+          }
+          dropTargetId ||= overlappingNodeTarget(element, id)?.id || null;
+          if (dropTargetId) {
+            const targetNode = nodes.find((item) => item.id === dropTargetId);
+            node.x = start.x;
+            node.y = start.y;
+            const result = toggleDroppedConnection(id, dropTargetId);
+            connecting = false;
+            connectFrom = null;
+            connectButton.classList.remove("active");
+            renderNodes();
+            renderEdges();
+            renderInspector();
+            showToast(result === "added"
+              ? `${node.title} connected to ${targetNode?.title || "that node"}.`
+              : result === "removed"
+                ? `${node.title} disconnected from ${targetNode?.title || "that node"}.`
+                : result === "protected"
+                  ? "That automatic registry connection is protected."
+                  : "That connection could not be changed.");
+            return;
+          }
+          settleNode(node, element, velocity);
+        };
+        element.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", end);
+        window.addEventListener("pointercancel", end);
+      }
+
+      function activateNode(id) {
+        if (connecting) {
+          if (!connectFrom) {
+            connectFrom = id;
+            renderNodes();
+            showToast("Choose a second node to create the connection.");
+            return;
+          }
+          if (connectFrom === id) {
+            showToast("Choose a different node.");
+            return;
+          }
+          showToast(addLocalConnection(connectFrom, id) ? "Connection added locally." : "Those nodes are already connected.");
+          connectFrom = null;
+          connecting = false;
+          connectButton.classList.remove("active");
+          renderNodes();
+          renderEdges();
+          renderInspector();
+          return;
+        }
+
+        selectedId = id;
+        renderNodes();
+        renderInspector();
+      }
+
+      function renderInspector() {
+        const node = nodes.find((item) => item.id === selectedId);
+        if (!node) {
+          inspectorEl.classList.remove("open");
+          inspectorEl.innerHTML = "";
+          return;
+        }
+        const linkedCount = connections.filter((connection) => connection.from === node.id || connection.to === node.id).length;
+        const linkedConnections = connections.filter((connection) => connection.from === node.id || connection.to === node.id);
+        const isProject = node.kind === "project";
+        const isRetired = isProject && isRetiredStatus(node.status);
+        inspectorEl.innerHTML = `<div class="inspector-head">
+          <div class="inspector-icon">${isProject ? "◌" : "◇"}</div>
+          <div><h2>${escapeHtml(node.title)}</h2><div class="inspector-subtitle">${escapeHtml(isProject ? "Project planet" : node.custom ? "Local orbital body" : "Registry moon")}</div></div>
+          <button class="close-button" id="close-inspector" type="button" aria-label="Close inspector">×</button>
+        </div>
+        <p class="inspector-copy">${escapeHtml(node.detail || "No context recorded yet.")}</p>
+        <div class="property-list">
+          ${isProject ? `<div class="property"><div class="property-label">Status</div><div class="property-value">${escapeHtml(node.status)}</div></div>` : ""}
+          ${node.location ? `<div class="property"><div class="property-label">Workspace</div><div class="property-value">${escapeHtml(node.location)}</div></div>` : ""}
+          ${node.path ? `<div class="property"><div class="property-label">Vault note</div><div class="property-value">${escapeHtml(node.path)}</div></div>` : ""}
+          <div class="property"><div class="property-label">Connections</div><div class="property-value">${linkedCount} visible relationship${linkedCount === 1 ? "" : "s"}</div>
+            <div class="connection-list">${linkedConnections.map((connection) => {
+              const otherId = connection.from === node.id ? connection.to : connection.from;
+              const otherNode = nodes.find((item) => item.id === otherId);
+              return `<div class="connection-row">
+                <div class="connection-name" title="${escapeHtml(otherNode?.title || "Unknown node")}">${escapeHtml(otherNode?.title || "Unknown node")}</div>
+                ${connection.custom
+                  ? `<button class="disconnect-button" type="button" data-disconnect-id="${escapeHtml(connection.id)}">Disconnect</button>`
+                  : `<span class="connection-kind" title="Automatic project-to-registry relationship">Protected</span>`}
+              </div>`;
+            }).join("")}</div>
+          </div>
+          ${isProject ? `<div class="property"><div class="property-label">System depth</div><div class="property-value">Registry moon mapped${node.captures ? ` · ${node.captures} attached capture${node.captures === 1 ? "" : "s"}` : ""}. Double-click to descend to surface detail.</div></div>` : ""}
+        </div>
+        <div class="inspector-actions">
+          ${node.path ? `<button id="open-note" type="button">Open note</button>` : ""}
+          ${isProject && node.location ? `<button id="open-workspace" type="button">Open workspace</button>` : ""}
+          <button id="zoom-selected" type="button">Zoom to surface</button>
+          <button id="connect-selected" type="button">Connect from here</button>
+          ${isProject ? `<button class="${isRetired ? "" : "danger"}" id="project-status-action" type="button">${isRetired ? "Restore project" : "Retire project"}</button>` : ""}
+          ${node.custom ? `<button class="danger" id="delete-node" type="button">Delete local node</button>` : ""}
+        </div>`;
+        inspectorEl.classList.add("open");
+        document.getElementById("close-inspector").onclick = () => { selectedId = null; renderNodes(); renderInspector(); };
+        const openNote = document.getElementById("open-note");
+        if (openNote) openNote.onclick = () => openRegistryNote(node.path);
+        const openWorkspace = document.getElementById("open-workspace");
+        if (openWorkspace) openWorkspace.onclick = () => openProjectWorkspace(node.projectRecordId);
+        document.getElementById("zoom-selected").onclick = () => zoomToNode(node.id);
+        document.getElementById("connect-selected").onclick = () => {
+          connecting = true;
+          connectFrom = node.id;
+          connectButton.classList.add("active");
+          renderNodes();
+          showToast("Choose another node to connect.");
+        };
+        const deleteButton = document.getElementById("delete-node");
+        if (deleteButton) deleteButton.onclick = () => deleteCustomNode(node.id);
+        inspectorEl.querySelectorAll("[data-disconnect-id]").forEach((button) => {
+          button.onclick = () => {
+            const connection = connections.find((item) => item.id === button.dataset.disconnectId);
+            const otherId = connection?.from === node.id ? connection?.to : connection?.from;
+            const otherNode = nodes.find((item) => item.id === otherId);
+            if (removeLocalConnection(button.dataset.disconnectId)) {
+              showToast(`${node.title} disconnected from ${otherNode?.title || "that node"}.`);
+            }
+          };
+        });
+        const statusButton = document.getElementById("project-status-action");
+        if (statusButton) statusButton.onclick = () => {
+          if (isRetired) {
+            updateProjectStatus(node, "active");
+            return;
+          }
+          if (statusButton.dataset.confirm !== "true") {
+            statusButton.dataset.confirm = "true";
+            statusButton.textContent = "Confirm retire";
+            showToast("Retiring hides this project from normal project views. You can restore it later.", 3600);
+            return;
+          }
+          updateProjectStatus(node, "retired");
+        };
+      }
+
+      async function openRegistryNote(path) {
+        try {
+          const response = await fetch("/api/files/open", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ kind: "file", path, rootKey: "vault", sourceId: "obsidian" }),
+          });
+          const result = await response.json().catch(() => ({}));
+          showToast(result.message || (response.ok ? "Opening registry note…" : "Could not open that note."));
+        } catch {
+          showToast("Could not open that note.");
+        }
+      }
+
+      async function openProjectWorkspace(id) {
+        try {
+          const response = await fetch("/api/projects/open", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id }),
+          });
+          const result = await response.json().catch(() => ({}));
+          showToast(result.message || (response.ok ? "Opening workspace…" : "Could not open that workspace."));
+        } catch {
+          showToast("Could not open that workspace.");
+        }
+      }
+
+      async function updateProjectStatus(node, status) {
+        try {
+          const response = await fetch("/api/projects/status", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id: node.projectRecordId, status }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            showToast(result.error || "Could not update that project.");
+            return;
+          }
+          selectedId = null;
+          await loadProjects({ fit: true });
+          renderInspector();
+          window.parent.postMessage({ type: "horizon:project-registry-updated" }, window.location.origin);
+          showToast(result.message || (status === "retired" ? "Project retired." : "Project restored."));
+        } catch {
+          showToast("Could not update that project.");
+        }
+      }
+
+      function deleteCustomNode(id) {
+        nodes = nodes.filter((node) => node.id !== id);
+        connections = connections.filter((connection) => connection.from !== id && connection.to !== id);
+        selectedId = null;
+        saveState();
+        renderNodes();
+        renderEdges();
+        renderInspector();
+        showToast("Local node removed.");
+      }
+
+      function nodeMatches(node, value) {
+        const haystack = `${node.title || ""} ${node.detail || ""} ${node.location || ""} ${node.status || ""}`.toLowerCase();
+        return haystack.includes(value.toLowerCase());
+      }
+
+      function applySearch() {
+        nodesEl.querySelectorAll(".graph-node").forEach((element) => {
+          const node = nodes.find((item) => item.id === element.dataset.nodeId);
+          element.classList.toggle("dimmed", Boolean(query && node && !nodeMatches(node, query)));
+        });
+        renderEdges();
+      }
+
+      function applyTransform() {
+        worldEl.style.transform = `translate3d(${viewport.x}px, ${viewport.y}px, 0) scale(${viewport.scale})`;
+        zoomReadoutEl.textContent = `${Math.round(viewport.scale * 100)}%`;
+        document.body.dataset.detail = viewport.scale < 0.13 ? "galaxy" : viewport.scale < 0.48 ? "orbit" : viewport.scale < 1.7 ? "context" : "surface";
+      }
+
+      function isKeyboardEditingTarget(target) {
+        return newNodeDialog.open || (target instanceof HTMLElement && (
+          target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)
+        ));
+      }
+
+      function nudgeKeyboardPan() {
+        const horizontal = (keyboardPanKeys.has("d") ? 1 : 0) - (keyboardPanKeys.has("a") ? 1 : 0);
+        const vertical = (keyboardPanKeys.has("s") ? 1 : 0) - (keyboardPanKeys.has("w") ? 1 : 0);
+        const speed = Math.max(3.5, Math.min(16, viewport.scale * 28));
+        viewport.x -= horizontal * speed;
+        viewport.y -= vertical * speed;
+        applyTransform();
+      }
+
+      function panWithKeyboard() {
+        if (!keyboardPanKeys.size) {
+          keyboardPanFrame = 0;
+          saveState();
+          return;
+        }
+        nudgeKeyboardPan();
+        keyboardPanFrame = window.requestAnimationFrame(panWithKeyboard);
+      }
+
+      function zoomToNode(id) {
+        const node = nodes.find((item) => item.id === id);
+        if (!node) return;
+        const rect = viewportEl.getBoundingClientRect();
+        const targetScale = node.kind === "project" ? 2.8 : 4.6;
+        selectedId = node.id;
+        worldEl.style.transition = "transform 760ms cubic-bezier(.22,1,.36,1)";
+        viewport.scale = targetScale;
+        viewport.x = rect.width / 2 - node.x * targetScale;
+        viewport.y = rect.height / 2 - node.y * targetScale;
+        applyTransform();
+        window.setTimeout(() => { worldEl.style.transition = ""; }, 780);
+        saveState();
+      }
+
+      function zoomAt(nextScale, localX, localY) {
+        const scale = Math.max(0.06, Math.min(6.5, nextScale));
+        const worldX = (localX - viewport.x) / viewport.scale;
+        const worldY = (localY - viewport.y) / viewport.scale;
+        viewport.x = localX - worldX * scale;
+        viewport.y = localY - worldY * scale;
+        viewport.scale = scale;
+        applyTransform();
+        saveState();
+      }
+
+      function fitAll(animate = true) {
+        if (!nodes.length) return;
+        const rect = viewportEl.getBoundingClientRect();
+        const minX = Math.min(...nodes.map((node) => node.x - nodeSize(node).width / 2));
+        const maxX = Math.max(...nodes.map((node) => node.x + nodeSize(node).width / 2));
+        const minY = Math.min(...nodes.map((node) => node.y - nodeSize(node).height / 2));
+        const maxY = Math.max(...nodes.map((node) => node.y + nodeSize(node).height / 2));
+        const contentWidth = maxX - minX + 180;
+        const contentHeight = maxY - minY + 160;
+        const scale = Math.max(0.06, Math.min(0.58, Math.min(rect.width / contentWidth, rect.height / contentHeight)));
+        if (animate) worldEl.style.transition = "transform 520ms cubic-bezier(.22,1,.36,1)";
+        viewport.scale = scale;
+        viewport.x = rect.width / 2 - ((minX + maxX) / 2) * scale;
+        viewport.y = rect.height / 2 - ((minY + maxY) / 2) * scale;
+        applyTransform();
+        window.setTimeout(() => { worldEl.style.transition = ""; }, 540);
+        saveState();
+      }
+
+      function restoreGeneratedLayout() {
+        const keepCustomNodes = Array.isArray(savedState.customNodes) ? savedState.customNodes : [];
+        const keepCustomConnections = Array.isArray(savedState.customConnections) ? savedState.customConnections : [];
+        savedState = { customNodes: keepCustomNodes, customConnections: keepCustomConnections, positions: {} };
+        buildGraph(projects);
+        fitAll();
+        saveState();
+        showToast("Generated layout restored. Local nodes were kept.");
+      }
+
+      function toggleRetiredProjects() {
+        showRetired = !showRetired;
+        renderProjectSet({ fit: true });
+        showToast(showRetired ? "Retired projects are visible." : "Retired projects are hidden.");
+      }
+
+      function populateProjectOptions() {
+        nodeProjectSelect.innerHTML = `<option value="">No automatic connection</option>${nodes
+          .filter((node) => node.kind === "project")
+          .map((node) => `<option value="${escapeHtml(node.id)}">${escapeHtml(node.title)}</option>`).join("")}`;
+      }
+
+      function updateRetiredButton() {
+        const retiredCount = allProjects.filter((project) => isRetiredStatus(project.status)).length;
+        retiredButton.hidden = retiredCount === 0;
+        retiredButton.classList.toggle("active", showRetired);
+        retiredButton.title = showRetired ? "Hide retired projects" : "Show retired projects";
+        retiredLabel.textContent = `${showRetired ? "Hide" : "Show"} retired (${retiredCount})`;
+      }
+
+      function renderProjectSet({ fit = false, restoreViewport = false } = {}) {
+        projects = showRetired ? allProjects : allProjects.filter((project) => !isRetiredStatus(project.status));
+        selectedId = null;
+        buildGraph(projects);
+        updateRetiredButton();
+        if (restoreViewport && savedState.viewport && Number(savedState.viewport.scale)) {
+          viewport = {
+            x: Number(savedState.viewport.x || 0),
+            y: Number(savedState.viewport.y || 0),
+            scale: Number(savedState.viewport.scale || 0.18),
+          };
+          applyTransform();
+        } else if (fit) {
+          fitAll(false);
+        }
+      }
+
+      async function loadProjects(options = {}) {
+        const response = await fetch("/api/projects?all=1", { cache: "no-store" });
+        if (!response.ok) throw new Error("Projects unavailable");
+        const data = await response.json();
+        allProjects = Array.isArray(data.projects) ? data.projects : [];
+        if (!allProjects.length) throw new Error("No projects returned");
+        renderProjectSet(options);
+        return projects;
+      }
+
+      function openNewNodeDialog() {
+        const selected = nodes.find((node) => node.id === selectedId);
+        nodeProjectSelect.value = selected?.kind === "project" ? selected.id : selected?.projectId || "";
+        document.getElementById("node-title").value = "";
+        document.getElementById("node-detail").value = "";
+        newNodeDialog.showModal();
+        window.setTimeout(() => document.getElementById("node-title").focus(), 0);
+      }
+
+      function createNodeFromForm() {
+        const title = document.getElementById("node-title").value.trim();
+        if (!title) return;
+        const rect = viewportEl.getBoundingClientRect();
+        const centerX = (rect.width / 2 - viewport.x) / viewport.scale;
+        const centerY = (rect.height / 2 - viewport.y) / viewport.scale;
+        const projectId = nodeProjectSelect.value;
+        const id = `local-node:${Date.now()}:${slug(title)}`;
+        nodes.push({
+          id,
+          kind: document.getElementById("node-kind").value,
+          title,
+          detail: document.getElementById("node-detail").value.trim(),
+          projectId,
+          custom: true,
+          x: Math.max(100, Math.min(SCENE.width - 100, centerX + 40)),
+          y: Math.max(80, Math.min(SCENE.height - 80, centerY + 40)),
+        });
+        if (projectId) connections.push({ id: `custom-edge:${Date.now()}`, from: projectId, to: id, type: "custom", custom: true });
+        selectedId = id;
+        saveState();
+        renderNodes();
+        renderEdges();
+        renderInspector();
+        newNodeDialog.close();
+        showToast("Constellation node created.");
+      }
+
+      viewportEl.addEventListener("pointerdown", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest(".context-menu")) return;
+        closeContextMenu();
+        viewportEl.focus({ preventScroll: true });
+        if (event.button !== 0 || target?.closest(".graph-node, .inspector, .zoom-controls")) return;
+        const start = { clientX: event.clientX, clientY: event.clientY, x: viewport.x, y: viewport.y };
+        viewportEl.classList.add("panning");
+        viewportEl.setPointerCapture(event.pointerId);
+        const move = (moveEvent) => {
+          viewport.x = start.x + moveEvent.clientX - start.clientX;
+          viewport.y = start.y + moveEvent.clientY - start.clientY;
+          applyTransform();
+        };
+        const end = () => {
+          viewportEl.classList.remove("panning");
+          viewportEl.removeEventListener("pointermove", move);
+          viewportEl.removeEventListener("pointerup", end);
+          viewportEl.removeEventListener("pointercancel", end);
+          saveState();
+        };
+        viewportEl.addEventListener("pointermove", move);
+        viewportEl.addEventListener("pointerup", end);
+        viewportEl.addEventListener("pointercancel", end);
+      });
+
+      viewportEl.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const rect = viewportEl.getBoundingClientRect();
+        const factor = Math.exp(-event.deltaY * 0.0012);
+        zoomAt(viewport.scale * factor, event.clientX - rect.left, event.clientY - rect.top);
+      }, { passive: false });
+
+      viewportEl.addEventListener("contextmenu", (event) => {
+        const target = event.target instanceof Element ? event.target.closest(".graph-node") : null;
+        const node = target ? nodes.find((item) => item.id === target.dataset.nodeId) : null;
+        openContextMenu(event, node);
+      });
+
+      document.addEventListener("pointerdown", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target?.closest(".context-menu")) closeContextMenu();
+      });
+
+      window.addEventListener("keydown", (event) => {
+        const key = event.key.toLowerCase();
+        if (key === "escape") {
+          closeContextMenu();
+          return;
+        }
+        if (!["w", "a", "s", "d"].includes(key) || isKeyboardEditingTarget(event.target)) return;
+        event.preventDefault();
+        const wasPressed = keyboardPanKeys.has(key);
+        keyboardPanKeys.add(key);
+        closeContextMenu();
+        viewportEl.focus({ preventScroll: true });
+        if (!wasPressed) nudgeKeyboardPan();
+        if (!keyboardPanFrame) keyboardPanFrame = window.requestAnimationFrame(panWithKeyboard);
+      });
+
+      window.addEventListener("keyup", (event) => {
+        const key = event.key.toLowerCase();
+        if (["w", "a", "s", "d"].includes(key)) keyboardPanKeys.delete(key);
+      });
+
+      document.getElementById("fit-button").onclick = () => fitAll();
+      document.getElementById("zoom-in").onclick = () => zoomAt(viewport.scale * 1.45, viewportEl.clientWidth / 2, viewportEl.clientHeight / 2);
+      document.getElementById("zoom-out").onclick = () => zoomAt(viewport.scale / 1.45, viewportEl.clientWidth / 2, viewportEl.clientHeight / 2);
+      document.getElementById("reset-layout").onclick = restoreGeneratedLayout;
+      connectButton.onclick = () => {
+        connecting = !connecting;
+        connectFrom = connecting && selectedId ? selectedId : null;
+        connectButton.classList.toggle("active", connecting);
+        renderNodes();
+        showToast(connecting ? (connectFrom ? "Choose another node to connect." : "Choose the first node to connect.") : "Connection mode closed.");
+      };
+      retiredButton.onclick = toggleRetiredProjects;
+      searchInput.addEventListener("input", () => { query = searchInput.value.trim(); applySearch(); });
+      document.getElementById("new-node-button").onclick = openNewNodeDialog;
+      document.getElementById("cancel-node").onclick = () => newNodeDialog.close();
+      document.getElementById("new-node-form").addEventListener("submit", (event) => { event.preventDefault(); createNodeFromForm(); });
+      window.addEventListener("resize", () => { if (nodes.length) fitAll(false); });
+
+      loadProjects({ fit: true, restoreViewport: false })
+        .then(() => {
+          showToast(`${projects.length} projects mapped · registry notes connected`, 3200);
+        })
+        .catch(() => {
+          emptyStateEl.hidden = false;
+        });
+    })();
+  </script>
+</body>
+</html>

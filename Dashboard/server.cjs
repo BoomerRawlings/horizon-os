@@ -32,6 +32,10 @@ const ITEMS_DIR = path.join(ROOT, "Calendar", "Items");
 const NOW_PATH = path.join(ROOT, "Calendar", "Now.md");
 const DIST_DIR = path.join(__dirname, "dist");
 const LEGACY_PUBLIC_DIR = path.join(__dirname, "public");
+const CONSTELLATION_BUNDLED_PATHS = [
+  path.join(DIST_DIR, "constellation.html"),
+  path.join(LEGACY_PUBLIC_DIR, "constellation.html"),
+];
 const CAPTURES_DIR = path.join(ROOT, "Inbox", "Captures");
 const CAPTURE_QUEUE_DIR = path.join(ROOT, "Runs", "CaptureQueue");
 const CAPTURE_QUEUE_INDEX = path.join(CAPTURE_QUEUE_DIR, "index.md");
@@ -3401,26 +3405,126 @@ function applyResearchIdeaCaptureAction(action, capture, text) {
   return { relPath: vaultRelative(filePath), topic };
 }
 
+function normalizeResearchPaperRef(value) {
+  const ref = String(value || "").trim();
+  if (ref.toLowerCase().startsWith("doi:")) {
+    const doi = normalizeDoi(ref.slice(4));
+    return doi ? `doi:${doi}` : "";
+  }
+  if (/^zotero:[A-Za-z0-9]+$/i.test(ref)) return `zotero:${ref.slice(7)}`;
+  if (/^vault:Research Papers\/[^/]+\.md$/i.test(ref)) return `vault:${normalizeVaultRelativePath(ref.slice(6))}`;
+  return "";
+}
+
+function researchPaperRef(paper) {
+  const doi = normalizeDoi(paper?.doi);
+  if (doi) return `doi:${doi}`;
+  if (paper?.zoteroKey) return `zotero:${paper.zoteroKey}`;
+  if (paper?.path) return `vault:${normalizeVaultRelativePath(paper.path)}`;
+  return "";
+}
+
+function researchPaperMatchesRef(paper, value) {
+  const ref = normalizeResearchPaperRef(value);
+  if (!ref || !paper) return false;
+  if (ref.startsWith("doi:")) return normalizeDoi(paper.doi) === ref.slice(4);
+  if (ref.startsWith("zotero:")) return String(paper.zoteroKey || "") === ref.slice(7);
+  return normalizeVaultRelativePath(paper.path) === ref.slice(6);
+}
+
+function researchPaperRefs(value) {
+  let refs = [];
+  if (Array.isArray(value)) {
+    refs = value;
+  } else {
+    try {
+      const parsed = JSON.parse(String(value || "[]"));
+      refs = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      refs = String(value || "").split(",");
+    }
+  }
+  return [...new Set(refs.map(normalizeResearchPaperRef).filter(Boolean))].slice(0, 80);
+}
+
+function safeResearchIdeaPath(value) {
+  const normalized = normalizeVaultRelativePath(value);
+  if (!/^Research Papers\/Ideas\/[^/]+\.md$/i.test(normalized)) return "";
+  const filePath = path.resolve(ROOT, ...normalized.split("/"));
+  const ideasRoot = path.resolve(ROOT, "Research Papers", "Ideas");
+  return filePath.startsWith(`${ideasRoot}${path.sep}`) ? filePath : "";
+}
+
+function researchIdeaBody(raw) {
+  const body = stripFrontmatter(raw);
+  const section = body.search(/(?:^|\n)## Connected papers\s*(?:\n|$)/i);
+  return (section >= 0 ? body.slice(0, section) : body).trim();
+}
+
+function researchIdeaRecord(filePath, raw = fs.readFileSync(filePath, "utf8")) {
+  const fields = readMarkdownFrontmatter(raw);
+  const body = researchIdeaBody(raw);
+  const name = path.basename(filePath);
+  return {
+    body,
+    connectedPaperRefs: researchPaperRefs(fields.connected_papers),
+    created: fields.created || "",
+    id: name,
+    path: `Research Papers/Ideas/${name}`,
+    preview: body.replace(/\s+/g, " ").slice(0, 240),
+    status: fields.status || "new",
+    topic: fields.topic || path.basename(name, ".md").replace(/^\d{4}-\d{2}-\d{2}__/, "").replace(/[-_]+/g, " "),
+  };
+}
+
+function researchIdeaConnectionLines(refs, papers) {
+  const connected = refs
+    .map((ref) => papers.find((paper) => researchPaperMatchesRef(paper, ref)))
+    .filter(Boolean)
+    .filter((paper, index, all) => all.findIndex((candidate) => candidate.id === paper.id) === index);
+  if (!connected.length) return [];
+  return [
+    "",
+    "## Connected papers",
+    "",
+    ...connected.map((paper) => {
+      const label = researchMarkdownText(paper.title) || "Untitled paper";
+      const identity = `${researchMarkdownText(paper.authorLabel) || "Unknown"}, ${researchMarkdownText(paper.year) || "n.d."}`;
+      if (paper.path) return `- [[${paper.path.replace(/\.md$/i, "")}|${label}]] — ${identity}`;
+      const doi = normalizeDoi(paper.doi);
+      if (doi) return `- [${label}](https://doi.org/${doi}) — ${identity}`;
+      if (paper.zoteroUrl) return `- [${label}](${paper.zoteroUrl}) — ${identity}`;
+      return `- ${label} — ${identity}`;
+    }),
+  ];
+}
+
+function writeResearchIdea(filePath, idea, papers = []) {
+  const refs = researchPaperRefs(idea.connectedPaperRefs);
+  const markdown = [
+    "---",
+    "type: research-idea",
+    `status: ${String(idea.status || "new").trim() || "new"}`,
+    `created: ${String(idea.created || currentToday()).trim()}`,
+    `topic: ${JSON.stringify(String(idea.topic || "Research idea").trim() || "Research idea")}`,
+    `connected_papers: ${JSON.stringify(refs)}`,
+    "---",
+    "",
+    String(idea.body || "").trim(),
+    ...researchIdeaConnectionLines(refs, papers),
+    "",
+  ].join("\n");
+  fs.writeFileSync(filePath, markdown, "utf8");
+  return researchIdeaRecord(filePath, markdown);
+}
+
 function listResearchIdeas() {
   const dir = path.join(ROOT, "Research Papers", "Ideas");
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".md") && name !== "index.md")
-    .map((name) => {
-      const filePath = path.join(dir, name);
-      const raw = fs.readFileSync(filePath, "utf8");
-      const fields = readMarkdownFrontmatter(raw);
-      const { citation } = researchPaperParts(raw); // first body line = the idea text
-      return {
-        created: fields.created || "",
-        id: name,
-        path: `Research Papers/Ideas/${name}`,
-        preview: (citation || "").slice(0, 240),
-        status: fields.status || "new",
-        topic: fields.topic || path.basename(name, ".md").replace(/^\d{4}-\d{2}-\d{2}__/, "").replace(/[-_]+/g, " "),
-      };
-    })
+    .map((name) => researchIdeaRecord(path.join(dir, name)))
     .sort((a, b) => String(b.created).localeCompare(String(a.created)) || b.id.localeCompare(a.id));
 }
 
@@ -3436,33 +3540,60 @@ function createResearchDeskIdea(payload) {
     .slice(0, 120) || "Research idea";
   const created = currentToday();
   const filePath = uniqueFilePath(path.join(dir, `${created}__${safeSlug(topic)}.md`));
-  const bodyText = [
-    "---",
-    "type: research-idea",
-    "status: new",
-    `created: ${created}`,
-    `topic: ${JSON.stringify(topic)}`,
-    "---",
-    "",
+  const idea = writeResearchIdea(filePath, {
     body,
-    "",
-  ].join("\n");
-  fs.writeFileSync(filePath, bodyText, "utf8");
-
-  const relPath = vaultRelative(filePath);
+    connectedPaperRefs: [],
+    created,
+    status: "new",
+    topic,
+  });
   return {
-    idea: {
-      created,
-      id: path.basename(filePath),
-      path: relPath,
-      preview: body.slice(0, 240),
-      status: "new",
-      topic,
-    },
+    idea,
     message: "Sticky note saved to Research Ideas.",
     ok: true,
     state: "created",
     statusCode: 201,
+  };
+}
+
+function updateResearchDeskIdea(payload, papers) {
+  const filePath = safeResearchIdeaPath(payload?.path);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return { message: "Sticky note not found.", ok: false, state: "not_found", statusCode: 404 };
+  }
+  const current = researchIdeaRecord(filePath);
+  const bodyProvided = Object.prototype.hasOwnProperty.call(payload || {}, "body");
+  const body = bodyProvided ? String(payload.body || "").trim().slice(0, 8000) : current.body;
+  if (!body) return { message: "A sticky note cannot be empty.", ok: false, state: "empty", statusCode: 400 };
+  const topic = bodyProvided
+    ? String(body.split(/\r?\n/, 1)[0] || current.topic).replace(/\s+/g, " ").trim().slice(0, 120) || current.topic
+    : current.topic;
+  const connectedPaperRefs = Object.prototype.hasOwnProperty.call(payload || {}, "connectedPaperRefs")
+    ? researchPaperRefs(payload.connectedPaperRefs)
+    : current.connectedPaperRefs;
+  const idea = writeResearchIdea(filePath, { ...current, body, connectedPaperRefs, topic }, papers);
+  return {
+    idea,
+    message: bodyProvided ? "Sticky note updated." : "Paper connections updated.",
+    ok: true,
+    state: "updated",
+    statusCode: 200,
+  };
+}
+
+function deleteResearchDeskIdea(payload) {
+  const filePath = safeResearchIdeaPath(payload?.path);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return { message: "Sticky note was already gone.", ok: true, state: "missing", statusCode: 200 };
+  }
+  const idea = researchIdeaRecord(filePath);
+  fs.unlinkSync(filePath);
+  return {
+    idea,
+    message: "Sticky note deleted.",
+    ok: true,
+    state: "deleted",
+    statusCode: 200,
   };
 }
 
@@ -3668,6 +3799,7 @@ function finalizeResearchPaper(paper) {
     authorLabel: researchAuthorLabel(authors, paper.citekey),
     authors,
     citation: cleanResearchText(paper.citation || paper.apaCitation),
+    dateAdded: knownResearchValue(paper.dateAdded) ? String(paper.dateAdded) : "",
     datePublished,
     dogEared: Boolean(paper.dogEared),
     doi,
@@ -3717,6 +3849,7 @@ function listVaultResearchPapers() {
         authors: authors.length ? authors : identity.authors,
         citation,
         citekey,
+        dateAdded: fields.date_added || fields.created || "",
         datePublished,
         dogEared: fields.dog_eared === "true",
         doi: normalizeDoi(fields.doi || firstDoiFromText(raw)) || "unknown",
@@ -3840,6 +3973,7 @@ function zoteroPapers(library) {
       authors: zoteroCreators(data),
       citation: item.bib || "",
       citekey,
+      dateAdded: data.dateAdded || "",
       datePublished: datePublished || "unknown",
       dogEared: false,
       doi: normalizeDoi(data.DOI || data.extra || data.url || data.title) || "unknown",
@@ -4067,6 +4201,7 @@ function mergeResearchPapers(localPaper, zoteroPaper) {
     apaCitation: zoteroPaper.apaCitation || localPaper.apaCitation,
     authors: zoteroPaper.authors.length ? zoteroPaper.authors : localPaper.authors,
     citation: zoteroPaper.apaCitation || localPaper.citation,
+    dateAdded: localPaper.dateAdded || zoteroPaper.dateAdded,
     datePublished: knownResearchValue(localPaper.datePublished) ? localPaper.datePublished : zoteroPaper.datePublished,
     doi: normalizeDoi(localPaper.doi) || normalizeDoi(zoteroPaper.doi) || "unknown",
     duplicateCopies: Math.max(localPaper.duplicateCopies || 1, zoteroPaper.duplicateCopies || 1),
@@ -5173,17 +5308,21 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-function sendDevelopmentSandbox(res) {
+function sendConstellation(res) {
   const headers = {
     "cache-control": "no-store, max-age=0",
     "content-type": "text/html; charset=utf-8",
-    "x-horizon-local-only": "true",
     "x-robots-tag": "noindex, nofollow",
   };
 
-  if (fs.existsSync(DEVELOPMENT_SANDBOX_INDEX_PATH)) {
-    res.writeHead(200, headers);
-    fs.createReadStream(DEVELOPMENT_SANDBOX_INDEX_PATH).pipe(res);
+  const bundledPath = CONSTELLATION_BUNDLED_PATHS.find((candidate) => fs.existsSync(candidate));
+  const constellationPath = bundledPath || (fs.existsSync(DEVELOPMENT_SANDBOX_INDEX_PATH) ? DEVELOPMENT_SANDBOX_INDEX_PATH : "");
+  if (constellationPath) {
+    res.writeHead(200, {
+      ...headers,
+      "x-horizon-constellation-source": bundledPath ? "bundled" : "legacy-local",
+    });
+    fs.createReadStream(constellationPath).pipe(res);
     return;
   }
 
@@ -5192,7 +5331,7 @@ function sendDevelopmentSandbox(res) {
 <html><head><meta charset="utf-8"><title>Constellation</title><style>
 html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#030812;color:#dbeafe;font:14px Inter,Segoe UI,sans-serif}
 main{max-width:520px;padding:28px;text-align:center}p{color:#7f8da3;line-height:1.6}
-</style></head><body><main><h1>Constellation</h1><p>No local experiment is installed on this machine yet. Local experiments belong in <code>00_System/local/Horizon/Development Sandbox/</code>, which Git ignores.</p></main></body></html>`);
+</style></head><body><main><h1>Constellation</h1><p>The Constellation interface is unavailable. Rebuild Horizon, then reload this workspace.</p></main></body></html>`);
 }
 
 function escapeHtml(value) {
@@ -5842,8 +5981,11 @@ async function handle(req, res) {
       });
       return;
     }
-    if (req.method === "GET" && url.pathname === "/api/development-sandbox") {
-      sendDevelopmentSandbox(res);
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/api/constellation" || url.pathname === "/api/development-sandbox")
+    ) {
+      sendConstellation(res);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/integrations") {
@@ -6070,6 +6212,19 @@ async function handle(req, res) {
     if (req.method === "POST" && url.pathname === "/api/research/ideas") {
       const payload = await readBody(req);
       const result = createResearchDeskIdea(payload);
+      sendJson(res, result.statusCode, result);
+      return;
+    }
+    if (req.method === "PATCH" && url.pathname === "/api/research/ideas") {
+      const payload = await readBody(req);
+      const library = await listResearchLibrary();
+      const result = updateResearchDeskIdea(payload, library.papers);
+      sendJson(res, result.statusCode, result);
+      return;
+    }
+    if (req.method === "DELETE" && url.pathname === "/api/research/ideas") {
+      const payload = await readBody(req);
+      const result = deleteResearchDeskIdea(payload);
       sendJson(res, result.statusCode, result);
       return;
     }
