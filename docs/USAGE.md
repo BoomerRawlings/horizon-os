@@ -10,7 +10,9 @@ Use the Capture Queue when you are ready to make decisions. Review each suggesti
 
 - Use **Calendar** for anything tied to a date.
 - Use **Projects** for outcomes that require multiple actions.
+- Use **Constellation** to see projects as a connected map and review relationships between them.
 - Use **Research** for papers, sources, questions, and reading queues.
+- Use **Workbench** for rough notes that still need cleaning, connections, or a final destination.
 - Use **Files** to browse the local vault and connected sources.
 - Use an inbox note for useful context that has no immediate action.
 
@@ -25,6 +27,18 @@ The vault remains the source of truth. A project is a Markdown note in `Project 
 5. When the session ends, mark the action complete or capture the next unresolved step.
 
 Project Spotlight on Home favors explicit pins and manual selections, then nearby calendar and task signals. It is a recommendation, not an automatic commitment.
+
+## Use Constellation
+
+Constellation is a visual organization layer over the project registry. Select a node to inspect it, drag nodes to rearrange the map, and drag one project onto another to toggle their connection. The graph does not replace the project notes; it helps you see the system around them.
+
+Status changes such as retiring a project still update the underlying project record. Review the selected project before changing its status or combining related work.
+
+## Use the Research Desk and Workbench
+
+Research combines local paper notes with configured Zotero records. Search by title, author, DOI, or subject; use reading stages to separate **To read**, **Skimming**, **Read**, and **Annotated**; and dog-ear papers that need attention. Exact DOI matches can complete missing bibliographic fields, but Horizon leaves human-authored note values unchanged and shows unresolved gaps plainly.
+
+Workbench is the landing area for writing that is not ready to file. Write freely, then review the proposed cleanup and connections before saving it as a durable note, project context, calendar item, or research idea. Use a small number of meaningful connections; the goal is a useful graph, not a dense one.
 
 ## Use Focus
 

@@ -77,6 +77,8 @@ function Ensure-Tool([string]$command, [string]$wingetId, [string]$label) {
     } catch {
       Warn "$label install did not complete automatically."
     }
+    # winget updates the persistent PATH, but not this already-running setup window.
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     if (Get-Command $command -ErrorAction SilentlyContinue) { Say "    $label installed." "Green"; return $true }
   }
   Warn "$label is not installed. Horizon will still run; automatic updates need it."
@@ -87,16 +89,13 @@ function Ensure-Tool([string]$command, [string]$wingetId, [string]$label) {
 $haveNode = Ensure-Tool "node" "OpenJS.NodeJS.LTS" "Node.js"
 $haveGit = Ensure-Tool "git" "Git.Git" "Git"
 
-# winget may install to a path not yet on this session's PATH; re-resolve for the steps below.
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-
 # --- 4. Prepare dependencies for the updater (best effort) ----------------------------------
 if ($haveNode) {
   Step "Preparing update dependencies (this can take a minute)"
   Push-Location $targetDashboard
   try {
-    & npm install --no-audit --no-fund 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { Say "    Ready." "Green" } else { Warn "npm install did not finish; updates will retry later." }
+    & npm ci --no-audit --no-fund 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { Say "    Ready." "Green" } else { Warn "Dependency setup did not finish; updates will retry later." }
   } catch {
     Warn "Could not prepare update dependencies now; the updater will retry later."
   } finally {

@@ -12,7 +12,7 @@ const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
   // HORIZON_DISABLE_AI keeps triage deterministic + offline for smoke: it exercises the
   // PHASE-08 local heuristics (no network, no key needed), which is exactly the path we
   // want smoke to guard. AI refinement is tested manually, not in the 10-second smoke.
-  env: { ...process.env, PORT: String(PORT), HORIZON_DISABLE_AI: "1" },
+  env: { ...process.env, PORT: String(PORT), HORIZON_DISABLE_AI: "1", HORIZON_DISABLE_EXTERNAL_INTEGRATIONS: "1" },
   stdio: "ignore",
 });
 
@@ -57,6 +57,16 @@ const health = await waitForHealth();
 if (health.app !== "horizon-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
 ok("/api/health identifies horizon-os");
 
+const developmentSandboxResponse = await fetch(`${BASE}/api/development-sandbox`);
+const developmentSandboxHtml = await developmentSandboxResponse.text();
+if (!developmentSandboxResponse.ok || developmentSandboxResponse.headers.get("x-horizon-local-only") !== "true") {
+  fail("/api/development-sandbox is missing its local-only response boundary");
+}
+if (!developmentSandboxHtml.includes("Constellation")) {
+  fail("/api/development-sandbox did not return a usable local experiment or fallback");
+}
+ok("/api/development-sandbox serves a Git-ignored local experiment boundary");
+
 const items = await (await fetch(`${BASE}/api/items`)).json();
 const list = Array.isArray(items) ? items : items.items;
 if (!Array.isArray(list)) fail("/api/items did not return an item list");
@@ -78,11 +88,35 @@ ok(`/api/capture/actions returned ${captureActions.actions.length} actions with 
 
 const papers = await (await fetch(`${BASE}/api/research/papers`)).json();
 if (!Array.isArray(papers.papers)) fail("/api/research/papers did not return a papers list");
-// PHASE-14: each paper exposes a citation (APA) + abstract for the Saved Papers browser.
-if (papers.papers.length && papers.papers.some((p) => p.citation === undefined || p.abstract === undefined)) {
-  fail("/api/research/papers missing citation/abstract fields");
+if (!papers.sources || typeof papers.sources.vaultCount !== "number" || typeof papers.sources.mergedCount !== "number" || typeof papers.sources.duplicateCount !== "number") {
+  fail("/api/research/papers did not return merged source counts");
 }
-ok(`/api/research/papers returned ${papers.papers.length} paper(s) with citation+abstract`);
+if (!papers.enrichment || typeof papers.enrichment.attempted !== "number" || typeof papers.enrichment.unresolved !== "number") {
+  fail("/api/research/papers did not return metadata enrichment status");
+}
+if (papers.papers.length && papers.papers.some((p) => (
+  p.citation === undefined
+  || p.abstract === undefined
+  || !["Abstract", "Summary"].includes(p.abstractLabel)
+  || typeof p.doi !== "string"
+  || typeof p.datePublished !== "string"
+  || !Array.isArray(p.missingFields)
+  || typeof p.metadataComplete !== "boolean"
+  || !p.id
+  || !p.title
+  || !Array.isArray(p.authors)
+  || !["to_read", "skimming", "read", "annotated"].includes(p.readingStatus)
+  || typeof p.dogEared !== "boolean"
+  || typeof p.duplicateCopies !== "number"
+  || typeof p.primarySubject !== "string"
+))) {
+  fail("/api/research/papers missing citation/abstract/DOI/date/workflow fields");
+}
+const knownDois = papers.papers.map((paper) => paper.doi).filter((doi) => doi && doi !== "unknown");
+if (new Set(knownDois).size !== knownDois.length) {
+  fail("/api/research/papers returned duplicate DOI cards");
+}
+ok(`/api/research/papers returned ${papers.papers.length} paper(s) with labeled summaries and metadata status`);
 
 // Research ideas endpoint: an empty result is valid for a new vault.
 const ideas = await (await fetch(`${BASE}/api/research/ideas`)).json();
@@ -97,7 +131,24 @@ if (!projects.projects.every((p) => p.name && p.location !== undefined && p.stat
 if (!projects.projects.every((p) => typeof p.captures === "number")) {
   fail("project registry entry missing captures count (PHASE-13)");
 }
-ok(`/api/projects returned ${projects.projects.length} project(s) with name/location/status/captures`);
+if (!projects.projects.every((p) => p.type === "project-registry")) {
+  fail("/api/projects included a non-project registry note");
+}
+ok(`/api/projects returned ${projects.projects.length} true project record(s) with name/location/status/captures`);
+
+const badStatus = await fetch(`${BASE}/api/projects/status`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ id: "__smoke_no_such_project__", status: "not-a-status" }),
+});
+if (badStatus.status !== 400) fail(`/api/projects/status should reject invalid statuses with 400, got ${badStatus.status}`);
+const missingStatusProject = await fetch(`${BASE}/api/projects/status`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ id: "__smoke_no_such_project__", status: "retired" }),
+});
+if (missingStatusProject.status !== 404) fail(`/api/projects/status should 404 for unknown ids, got ${missingStatusProject.status}`);
+ok("/api/projects/status validates status changes without mutating unknown projects");
 
 // PHASE-13: the open-workspace route must reject unknown ids cleanly (no side effects).
 const badOpen = await fetch(`${BASE}/api/projects/open`, {

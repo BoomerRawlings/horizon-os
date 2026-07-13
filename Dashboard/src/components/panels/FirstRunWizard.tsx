@@ -156,7 +156,7 @@ const steps: WizardStep[] = [
             See what is due, the project that matters now, and the Focus timer.
           </InfoCard>
           <InfoCard icon={LayoutDashboard} title="Workspaces">
-            Use the left sidebar for Calendar, Projects, Research, Sandbox, and Files.
+            Use the left sidebar for Calendar, Projects, Constellation (local experiment), Focus, Research, Workbench, Files, and Sandbox.
           </InfoCard>
           <InfoCard icon={FolderOpen} title="Your vault">
             Horizon writes durable local files. The app is the cockpit; the vault keeps the record.

@@ -38,7 +38,9 @@ type CaptureActionType =
   | "create_behavior_rule"
   | "delete_capture"
   | "ask_clarification"
-  | "queue_review";
+  | "queue_review"
+  | "save_research"
+  | "save_research_idea";
 
 type CaptureAction = {
   id: string;
@@ -67,6 +69,7 @@ type CaptureAction = {
     note_path?: string;
     email_to?: string;
     email_subject?: string;
+    connections?: string;
   };
 };
 
@@ -196,6 +199,7 @@ function actionExternalBoundary(meta: CaptureActionMeta[], action: CaptureAction
 function actionIcon(type: CaptureActionType) {
   if (type === "create_calendar_item") return <CalendarPlus className="h-4 w-4" />;
   if (type === "save_note") return <FileCheck2 className="h-4 w-4" />;
+  if (type === "save_research" || type === "save_research_idea") return <BookOpen className="h-4 w-4" />;
   if (type === "create_project") return <FolderPlus className="h-4 w-4" />;
   if (type === "attach_to_project") return <Link2 className="h-4 w-4" />;
   if (type === "add_to_zotero") return <BookOpen className="h-4 w-4" />;
@@ -212,6 +216,14 @@ function cloneAction(action: CaptureAction): CaptureAction {
     ...action,
     payload: { ...(action.payload || {}) },
   };
+}
+
+function actionHasConnections(action: CaptureAction) {
+  return Boolean(action.payload?.connections?.trim());
+}
+
+function actionSupportsConnections(action: CaptureAction) {
+  return ["save_note", "create_project", "save_research", "save_research_idea"].includes(action.type);
 }
 
 function queueMeaningfulText(value: string) {
@@ -427,10 +439,12 @@ export function CaptureWorkspace({
   const [batchApplying, setBatchApplying] = useState(false);
   const lastAutoRunKeyRef = useRef(0);
   const mainTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const triageSourceTextRef = useRef("");
   const appliedIds = new Set(appliedActions.map((record) => record.actionId));
 
   useEffect(() => {
     if (focusKey === 0) return;
+    resetForNewSession();
     const timer = window.setTimeout(() => mainTextareaRef.current?.focus(), 120);
     return () => window.clearTimeout(timer);
   }, [focusKey]);
@@ -459,7 +473,32 @@ export function CaptureWorkspace({
     void playCaptureSound(audioHandle, kind, soundVolume);
   }
 
+  function resetForNewSession() {
+    triageSourceTextRef.current = "";
+    setStatus("idle");
+    setTriage(null);
+    setActiveAction(null);
+    setDraftAction(null);
+    setResult(null);
+    setAppliedActions([]);
+    setBatchApplying(false);
+    setLoadingNextCapture(false);
+    setNextCaptureAvailable(null);
+    setMessage("Paste anything. Horizon will turn it into a few safe next actions.");
+  }
+
+  function handleTextChange(value: string) {
+    if (appliedActions.length) return;
+    if (triage || draftAction) resetForNewSession();
+    onTextChange(value);
+  }
+
   function selectAction(action: CaptureAction) {
+    if (triageSourceTextRef.current && triageSourceTextRef.current !== text.trim()) {
+      resetForNewSession();
+      setMessage("The rough input changed. Triage it again so the approval fields match what is on screen.");
+      return;
+    }
     const next = cloneAction(action);
     setActiveAction(next);
     setDraftAction(next);
@@ -526,6 +565,7 @@ export function CaptureWorkspace({
       const reason = queueSource ? lowValueQueuedCaptureReason(text) : "";
       if (queueSource && reason) {
         const nextTriage = disposableQueueTriage(text, queueSource, reason);
+        triageSourceTextRef.current = text.trim();
         setStatus("ready");
         setTriage(nextTriage);
         setActiveAction(null);
@@ -568,6 +608,7 @@ export function CaptureWorkspace({
       const data = (await response.json()) as { message?: string; triage?: CaptureTriage };
       if (!response.ok || !data.triage) throw new Error(data.message || "Capture triage failed.");
       const nextTriage = withQueuedDeleteChoice(data.triage, value, queueSource);
+      triageSourceTextRef.current = value;
       setTriage(nextTriage);
       setStatus("ready");
       setMessage(
@@ -607,6 +648,12 @@ export function CaptureWorkspace({
 
   async function applyAction(action: CaptureAction | null = draftAction): Promise<boolean> {
     if (!action) return false;
+    if (triageSourceTextRef.current && triageSourceTextRef.current !== text.trim()) {
+      resetForNewSession();
+      setMessage("The rough input changed. Triage it again before saving so Horizon cannot apply stale details.");
+      playCue("capture-error");
+      return false;
+    }
     setActiveAction(action);
     setResult(null);
     setNextCaptureAvailable(null);
@@ -670,7 +717,7 @@ export function CaptureWorkspace({
   async function applyAllRemaining() {
     if (!triage?.actions?.length || batchApplying) return;
     const remaining = triage.actions.filter(
-      (action) => action.type !== "delete_capture" && !appliedIds.has(action.id),
+      (action) => action.type !== "delete_capture" && !actionHasConnections(action) && !appliedIds.has(action.id),
     );
     if (!remaining.length) return;
     setBatchApplying(true);
@@ -770,6 +817,9 @@ export function CaptureWorkspace({
   const remainingCount = triage?.actions
     ? triage.actions.filter((action) => action.type !== "delete_capture" && !appliedIds.has(action.id)).length
     : 0;
+  const batchEligibleCount = triage?.actions
+    ? triage.actions.filter((action) => action.type !== "delete_capture" && !actionHasConnections(action) && !appliedIds.has(action.id)).length
+    : 0;
   const step = currentStep(status, draftAction, appliedActions.length, triage);
   const triageButtonLabel = status === "thinking" ? "Reading Capture" : triageLocked ? "Action Selected" : triage ? "Retriage" : "Triage Capture";
   const TriageButtonIcon = status === "thinking" ? Loader2 : triageLocked ? CheckCircle2 : triage ? RotateCcw : Sparkles;
@@ -782,8 +832,8 @@ export function CaptureWorkspace({
         <div className="flex min-w-0 items-center gap-3">
           <PenLine className="h-5 w-5 flex-none text-slate-300" />
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-white">Capture</h2>
-            <p className="mt-1 text-sm text-slate-400">Sort raw input into one clean local action. Nothing is saved until you allow it.</p>
+            <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-white">Workbench</h2>
+            <p className="mt-1 text-sm text-slate-400">Drop in rough thinking. Horizon cleans it, routes it, and proposes only real connections for your approval.</p>
           </div>
         </div>
         <button
@@ -812,7 +862,8 @@ export function CaptureWorkspace({
         <div className="capture-compose">
           <textarea
             className="capture-main-textarea min-h-[230px] w-full resize-none rounded-2xl border border-white/10 bg-slate-950/35 p-4 text-base leading-relaxed text-slate-100 outline-none transition placeholder:italic placeholder:text-slate-600 focus:border-[rgba(var(--accent-rgb),0.55)] focus:ring-4 focus:ring-[rgba(var(--accent-rgb),0.1)]"
-            onChange={(event) => onTextChange(event.target.value)}
+            disabled={appliedActions.length > 0}
+            onChange={(event) => handleTextChange(event.target.value)}
             placeholder="Paste a reminder, rough note, syllabus bit, URL, file path, quote, email idea..."
             ref={mainTextareaRef}
             value={text}
@@ -999,7 +1050,18 @@ export function CaptureWorkspace({
                     ) : null}
 
                     {draftAction.type === "save_note" ? (
-                      <PreviewInput label="Destination" onChange={(value) => updateDraftPayload("destination", value)} placeholder="Inbox unless a better existing place applies" value={draftPayload.destination || ""} />
+                      <div className="rounded-lg border border-white/8 bg-white/[0.025] px-3 py-2.5 text-sm text-slate-400">
+                        Route: <span className="text-slate-200">Inbox</span> — a general note stays here until a reviewed action gives it a more specific home.
+                      </div>
+                    ) : null}
+
+                    {actionSupportsConnections(draftAction) ? (
+                      <PreviewTextarea
+                        label="Connections (existing notes only)"
+                        onChange={(value) => updateDraftPayload("connections", value)}
+                        placeholder="One exact existing note per line; maximum three"
+                        value={draftPayload.connections || ""}
+                      />
                     ) : null}
 
                     <PreviewTextarea
@@ -1129,7 +1191,7 @@ export function CaptureWorkspace({
               })
             : null}
         </div>
-        {remainingCount > 1 ? (
+        {batchEligibleCount > 1 ? (
           <button
             className="mt-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-300/25 bg-emerald-300/10 px-4 text-sm font-medium text-emerald-100 transition hover:bg-emerald-300/16 disabled:cursor-not-allowed disabled:opacity-50"
             disabled={busy}
@@ -1137,8 +1199,13 @@ export function CaptureWorkspace({
             type="button"
           >
             {batchApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            Apply all {remainingCount} remaining
+            Apply {batchEligibleCount} unconnected actions
           </button>
+        ) : null}
+        {remainingCount > batchEligibleCount ? (
+          <p className="mt-3 text-xs leading-relaxed text-slate-500">
+            Suggestions with connections stay individual so you can verify every link before it is written.
+          </p>
         ) : null}
         {!triage?.actions?.length ? (
           <button

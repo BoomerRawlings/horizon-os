@@ -1,4 +1,5 @@
-import { CalendarDays, CheckCircle2, CircleDot, Inbox, ListChecks } from "lucide-react";
+import { CalendarDays, CheckCircle2, Inbox, ListChecks } from "lucide-react";
+import { FocusIcon } from "../ui/HorizonIcons";
 
 type StatusRowProps = {
   eventCount: number;
@@ -7,6 +8,8 @@ type StatusRowProps = {
   triageCount: number;
   focusLabel: string;
   onOpenCalendar: () => void;
+  onOpenFocus: () => void;
+  onOpenPriorities: () => void;
   onOpenReview: () => void;
   onOpenSweep: () => void;
 };
@@ -22,14 +25,16 @@ export function StatusRow({
   triageCount,
   focusLabel,
   onOpenCalendar,
+  onOpenFocus,
+  onOpenPriorities,
   onOpenReview,
   onOpenSweep,
 }: StatusRowProps) {
   // Every counter here is backed by real data (PHASE-10 truthfulness pass): events /
   // priorities / review-items come from the live calendar; focus reflects the real timer
   // state; to-triage is the live capture-pile count. The calendar-derived counters open the
-  // calendar; review-items opens the calendar focused on the flagged items; to-triage opens
-  // the sweep. Focus is a passive status, not a link.
+  // calendar; priorities and review-items open their focused lists; focus opens the full
+  // focus surface; to-triage opens the sweep.
   const pillClass =
     "-my-1 flex items-center gap-2 whitespace-nowrap rounded-lg px-2 py-1 transition hover:bg-white/[0.05] hover:text-white";
 
@@ -40,15 +45,15 @@ export function StatusRow({
         {pluralize(eventCount, "event")}
       </button>
 
-      <button className={pillClass} onClick={onOpenCalendar} title="See upcoming priorities" type="button">
+      <button className={pillClass} onClick={onOpenPriorities} title="See upcoming priorities" type="button">
         <ListChecks className="h-4 w-4 text-slate-400" />
         {pluralize(priorityCount, "priority", "priorities")}
       </button>
 
-      <span className="flex items-center gap-2 whitespace-nowrap px-2">
-        <CircleDot className="h-4 w-4 text-slate-400" />
+      <button className={pillClass} onClick={onOpenFocus} title="Open Focus" type="button">
+        <FocusIcon className="h-4 w-4 text-slate-400" />
         {focusLabel}
-      </span>
+      </button>
 
       {issueCount ? (
         <button

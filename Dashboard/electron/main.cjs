@@ -123,7 +123,7 @@ async function ensureServer() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
-      HORIZON_APP_DATA_DIR: app.getPath("userData"),
+      HORIZON_APP_DATA_DIR: process.env.HORIZON_APP_DATA_DIR || app.getPath("userData"),
       HORIZON_NATIVE_APP_EXE: process.execPath,
       HORIZON_VAULT_ROOT: vaultRoot(),
       PORT: String(PORT),

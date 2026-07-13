@@ -3,9 +3,10 @@
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { heuristicActions } = require("../server/captureHeuristics.cjs");
+const { currentLocalIsoDate } = require("../server/currentDate.cjs");
 
 const TODAY = "2026-07-08"; // Wednesday
-const hasAction = (id) => ["create_calendar_item", "save_research", "save_note", "draft_email", "create_project", "queue_review"].includes(id);
+const hasAction = (id) => ["create_calendar_item", "save_research", "save_research_idea", "save_note", "draft_email", "create_project", "queue_review"].includes(id);
 const run = (text) => heuristicActions(text, { today: TODAY, hasAction });
 
 let failures = 0;
@@ -19,6 +20,27 @@ function check(label, cond, detail) {
 }
 const primary = (text) => run(text)[0];
 const typeOf = (text) => primary(text)?.type;
+
+// The app can stay open for days. Its local date must advance without a server restart.
+check(
+  "app date advances across Pacific midnight",
+  currentLocalIsoDate({
+    date: new Date("2026-07-12T06:59:59.000Z"),
+    timeZone: "America/Los_Angeles",
+  }) === "2026-07-11" &&
+    currentLocalIsoDate({
+      date: new Date("2026-07-12T07:00:00.000Z"),
+      timeZone: "America/Los_Angeles",
+    }) === "2026-07-12",
+);
+check(
+  "fixed date override remains deterministic",
+  currentLocalIsoDate({
+    date: new Date("2030-01-01T00:00:00.000Z"),
+    override: TODAY,
+    timeZone: "America/Los_Angeles",
+  }) === TODAY,
+);
 
 // 1. Explicit ISO date + meridiem time → calendar, high, exact fields.
 {
@@ -59,6 +81,20 @@ const typeOf = (text) => primary(text)?.type;
   check("next Friday from Wed → 2026-07-17", a?.payload.date === "2026-07-17", a?.payload.date);
   check("10:30 → 10:30", a?.payload.time_start === "10:30", a?.payload.time_start);
   check("weekday → medium (not high)", a?.confidence === "medium", a?.confidence);
+}
+
+// Coursework deadlines with no explicit time remain actionable through the stated day.
+{
+  const a = primary("PSYC 109 homework assignment due 2026-08-14");
+  check("coursework without time defaults to 23:58", a?.payload.time_start === "23:58", JSON.stringify(a));
+}
+{
+  const a = primary("Canvas assignment due 2026-08-14 at 8pm");
+  check("explicit coursework time wins", a?.payload.time_start === "20:00", JSON.stringify(a));
+}
+{
+  const a = primary("Dentist appointment 2026-08-14");
+  check("non-coursework date remains all-day", a?.payload.time_start === "", JSON.stringify(a));
 }
 
 // 5. DOI → research high.
@@ -110,6 +146,16 @@ check("empty → []", run("   ").length === 0);
 {
   const noResearch = heuristicActions("https://doi.org/10.1/x paper", { today: TODAY, hasAction: (id) => id !== "save_research" });
   check("no save_research → save_note", noResearch[0]?.type === "save_note", JSON.stringify(noResearch[0]));
+}
+
+// Explicit Workbench language routes rough notes without needing AI.
+{
+  const a = primary("Rough research note: Does short-form video affect attention?");
+  check("rough research note → research idea", a?.type === "save_research_idea", JSON.stringify(a));
+}
+{
+  const a = primary("Rough note: ask housing about the form wording");
+  check("rough note → cleaned Inbox note", a?.type === "save_note", JSON.stringify(a));
 }
 
 if (failures) {

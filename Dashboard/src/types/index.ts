@@ -252,7 +252,16 @@ export type IntegrationConnection = {
   lastCheckedLabel?: string;
 };
 
-export type HorizonView = "home" | "calendar" | "files" | "focus" | "projects" | "sandbox";
+export type HorizonView =
+  | "home"
+  | "calendar"
+  | "files"
+  | "focus"
+  | "projects"
+  | "research"
+  | "workbench"
+  | "sandbox"
+  | "development-sandbox";
 
 export type FileBrowserSourceId = "local" | "obsidian" | "google-drive" | "microsoft" | "research";
 

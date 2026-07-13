@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { MoonStar, PanelLeftClose, PanelLeftOpen, Pause, Play, RotateCcw, Settings2, Sparkles, Target } from "lucide-react";
+import { MoonStar, PanelLeftClose, PanelLeftOpen, Pause, Play, RotateCcw, Settings2, Sparkles } from "lucide-react";
 import { getFocusPhaseTheme } from "../../data/focusTheme";
+import { FocusIcon } from "../ui/HorizonIcons";
 import { FOCUS_PRESETS, formatTime, type FocusTimerController } from "../../hooks/useFocusTimer";
 
 type FocusWorkspaceProps = {
@@ -37,7 +38,7 @@ export function FocusWorkspace({ focusTimer, navigationCollapsed, onToggleNaviga
   const phaseTheme = getFocusPhaseTheme(focusTimer.mode);
   const timerState = focusTimer.isRunning ? "running" : focusTimer.progress > 0 ? "paused" : "ready";
   const phaseLabel = focusTimer.mode === "focus" ? "Deep Work" : "Break";
-  const PhaseIcon = focusTimer.mode === "focus" ? Target : MoonStar;
+  const PhaseIcon = focusTimer.mode === "focus" ? FocusIcon : MoonStar;
   const statusLabel = focusTimer.isRunning
     ? focusTimer.mode === "focus"
       ? "Session in orbit"

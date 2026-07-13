@@ -4,7 +4,7 @@ macOS support is an early preview. Horizon's local vault, capture queue, calenda
 
 ## Install a release
 
-1. Open the [latest release](https://github.com/BoomerRawlings/horizon-os/releases/latest).
+1. Open the newest release that includes Mac assets. The current native Mac preview is [v0.2.0](https://github.com/BoomerRawlings/horizon-os/releases/tag/v0.2.0).
 2. Download `Horizon-<version>-arm64.dmg` for an Apple Silicon Mac or `Horizon-<version>-x64.dmg` for an Intel Mac.
 3. Open the DMG and drag Horizon into Applications.
 4. Right-click Horizon in Applications and choose **Open** for the first launch.

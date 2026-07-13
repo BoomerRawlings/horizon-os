@@ -23,7 +23,7 @@ import {
   saveSpotlightPreferences,
   type SpotlightPreferences,
 } from "../../data/projectSpotlightData";
-import { fetchVaultProjects, mergeProjectRegistry } from "../../data/vaultProjects";
+import { fetchVaultProjects, mergeProjectRegistry, PROJECT_REGISTRY_UPDATED_MESSAGE } from "../../data/vaultProjects";
 import { MOTION_TIMING } from "../../data/motionSystem";
 import type { FocusTimerController } from "../../hooks/useFocusTimer";
 import type { Project, RcfCalendarItem, SpotlightProgress, SpotlightSourceStatus, SpotlightViewModel } from "../../types";
@@ -37,11 +37,19 @@ function useProjectRegistry(): Project[] {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchVaultProjects().then((records) => {
-      if (!cancelled && records.length) setRegistry(mergeProjectRegistry(projectRegistry, records));
-    });
+    const refresh = () => {
+      void fetchVaultProjects().then((records) => {
+        if (!cancelled) setRegistry(mergeProjectRegistry(projectRegistry, records));
+      });
+    };
+    const handleRegistryUpdate = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === PROJECT_REGISTRY_UPDATED_MESSAGE) refresh();
+    };
+    refresh();
+    window.addEventListener("message", handleRegistryUpdate);
     return () => {
       cancelled = true;
+      window.removeEventListener("message", handleRegistryUpdate);
     };
   }, []);
 

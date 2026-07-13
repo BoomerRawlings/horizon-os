@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Moon, Target } from "lucide-react";
+import { Moon } from "lucide-react";
 import type { FocusTimerController } from "../../hooks/useFocusTimer";
 import { getFocusPhaseTheme } from "../../data/focusTheme";
 import { getGreetingSlotIndex, pickGreetingSelection, pickStartupSubheading, renderGreeting } from "../../data/greetings";
 import type { ProfileSettings } from "../../types";
+import { FocusIcon } from "../ui/HorizonIcons";
 
 type HeaderProps = {
   focusTimer: FocusTimerController;
@@ -43,7 +44,7 @@ export function Header({ focusTimer, profile }: HeaderProps) {
   const focusLabel = focusTimer.mode === "focus" ? "Deep Work" : "Break";
   const focusStatus = focusTimer.isRunning ? "In session" : focusTimer.progress > 0 ? "Paused" : "Ready";
   const phaseTheme = getFocusPhaseTheme(focusTimer.mode);
-  const PhaseIcon = focusTimer.mode === "focus" ? Target : Moon;
+  const PhaseIcon = focusTimer.mode === "focus" ? FocusIcon : Moon;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(new Date()), 1_000);

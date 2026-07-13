@@ -22,7 +22,7 @@ import {
   saveSpotlightPreferences,
 } from "../../data/projectSpotlightData";
 import { SPOTLIGHT_PREFERENCES_EVENT } from "./ProjectSpotlight";
-import { fetchVaultProjects, mergeProjectRegistry, type VaultProjectRecord } from "../../data/vaultProjects";
+import { fetchVaultProjects, mergeProjectRegistry, PROJECT_REGISTRY_UPDATED_MESSAGE, type VaultProjectRecord } from "../../data/vaultProjects";
 import type { Project } from "../../types";
 
 type ProjectsWorkspaceProps = {
@@ -58,15 +58,23 @@ export function ProjectsWorkspace({ onClose, onCreateProject }: ProjectsWorkspac
 
   useEffect(() => {
     let cancelled = false;
-    void fetchVaultProjects()
-      .then((records) => {
-        if (!cancelled) setVaultRecords(records);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const refresh = () => {
+      void fetchVaultProjects()
+        .then((records) => {
+          if (!cancelled) setVaultRecords(records);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+    const handleRegistryUpdate = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === PROJECT_REGISTRY_UPDATED_MESSAGE) refresh();
+    };
+    refresh();
+    window.addEventListener("message", handleRegistryUpdate);
     return () => {
       cancelled = true;
+      window.removeEventListener("message", handleRegistryUpdate);
     };
   }, []);
 

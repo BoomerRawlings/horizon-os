@@ -15,7 +15,8 @@ const {
   captureTriageHints,
 } = require("./server/captureActions.cjs");
 // PHASE-08: deterministic local pre-triage (zero AI, zero network).
-const { heuristicActions } = require("./server/captureHeuristics.cjs");
+const { applyCourseworkDeadlineDefault, heuristicActions } = require("./server/captureHeuristics.cjs");
+const { currentLocalIsoDate } = require("./server/currentDate.cjs");
 
 const ROOT = process.env.HORIZON_VAULT_ROOT || path.resolve(__dirname, "..");
 const ITEMS_DIR = path.join(ROOT, "Calendar", "Items");
@@ -30,8 +31,13 @@ const INCOMING_CAPTURE_INDEX = path.join(INCOMING_CAPTURE_DIR, "index.md");
 const HORIZON_LOCAL_DIR = path.join(ROOT, "00_System", "local", "Horizon");
 const HORIZON_LOCAL_STATE_PATH = path.join(HORIZON_LOCAL_DIR, "runtime-state.json");
 const HORIZON_LOCAL_INDEX_PATH = path.join(HORIZON_LOCAL_DIR, "index.md");
+const DEVELOPMENT_SANDBOX_DIR = path.join(HORIZON_LOCAL_DIR, "Development Sandbox");
+const DEVELOPMENT_SANDBOX_INDEX_PATH = path.join(DEVELOPMENT_SANDBOX_DIR, "index.html");
 const HORIZON_REDACTED_INTEGRATIONS_PATH = path.join(HORIZON_LOCAL_DIR, "integration-settings.redacted.json");
 const CAPTURE_ACTION_HISTORY_PATH = path.join(HORIZON_LOCAL_DIR, "capture-action-history.json");
+const RESEARCH_LIBRARY_CACHE_PATH = path.join(HORIZON_LOCAL_DIR, "research-library-cache.json");
+const RESEARCH_METADATA_CACHE_PATH = path.join(HORIZON_LOCAL_DIR, "research-metadata-cache.json");
+const RESEARCH_PAPER_STATE_PATH = path.join(HORIZON_LOCAL_DIR, "research-paper-state.json");
 const GOOGLE_OAUTH_CLIENT_PATH = path.join(HORIZON_LOCAL_DIR, "credentials", "google-oauth-client.json");
 const STARTUP_DIR = path.join(
   process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
@@ -69,17 +75,12 @@ const PORT = Number(process.env.PORT || 3873);
 const HOST = "127.0.0.1";
 const GOOGLE_OAUTH_REDIRECT_URI = `http://${HOST}:${PORT}`;
 const APP_TIME_ZONE = process.env.HORIZON_TIME_ZONE || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-function localDateInTimeZone(date = new Date(), timeZone = APP_TIME_ZONE) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-    year: "numeric",
-  }).formatToParts(date);
-  const part = (type) => parts.find((item) => item.type === type)?.value || "";
-  return `${part("year")}-${part("month")}-${part("day")}`;
+function currentToday() {
+  return currentLocalIsoDate({
+    override: process.env.HORIZON_TODAY,
+    timeZone: APP_TIME_ZONE,
+  });
 }
-const TODAY = process.env.HORIZON_TODAY || localDateInTimeZone();
 const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 const POWERSHELL = process.env.ComSpec ? "powershell.exe" : "pwsh";
 const WSCRIPT_EXE = process.env.WINDIR
@@ -237,7 +238,7 @@ const INTEGRATION_DEFINITIONS = {
     detailLabel: "Zotero credentials not configured",
     id: "zotero",
     label: "Zotero",
-    permissionSummary: "Stores a Zotero User ID and API key in Horizon's local app-data file. OS keychain storage is not implemented yet.",
+    permissionSummary: "Uses a Zotero User ID and API key to test and later sync library metadata.",
     status: "api_key_required",
     statusLabel: "Credentials needed",
     type: "api_key",
@@ -247,10 +248,10 @@ const INTEGRATION_DEFINITIONS = {
     capability: "integration",
     category: "ai",
     defaultSettings: { model: DEFAULT_AI_AGENT_MODEL, provider: "OpenAI", tokenOrKey: "" },
-    detailLabel: "Stored locally; OS keychain support is planned",
+    detailLabel: "Key validation requires secure storage",
     id: "ai-agent",
     label: "AI Agent",
-    permissionSummary: "Stores the API key in Horizon's local app-data file. OS keychain storage is not implemented yet.",
+    permissionSummary: "Stores local key metadata for future capture parsing and workflow routing.",
     status: "api_key_required",
     statusLabel: "API key required",
     type: "api_key",
@@ -332,11 +333,11 @@ const LAUNCH_ACTIONS = {
   "google.forms": { id: "google.forms", label: "Google Forms", kind: "web_url", target: "https://forms.google.com" },
   "google.calendar": { id: "google.calendar", label: "Google Calendar", kind: "web_url", target: "https://calendar.google.com" },
   "google.gmail": { id: "google.gmail", label: "Gmail", kind: "web_url", target: "https://mail.google.com" },
-  "research.worldcat": {
-    id: "research.worldcat",
-    label: "WorldCat",
+  "research.ucsd_library": {
+    id: "research.ucsd_library",
+    label: "UCSD Library",
     kind: "web_url",
-    target: "https://search.worldcat.org/",
+    target: "https://search-library.ucsd.edu",
   },
   "research.google_scholar": {
     id: "research.google_scholar",
@@ -1029,7 +1030,7 @@ function horizonStateSummary(state, redactedIntegrations) {
     "## Git Policy",
     "",
     "This folder is ignored by Git. It may contain personal preferences and local machine paths.",
-    "Do not move secrets here. Integration credentials stay in Horizon's local app-data folder and only redacted summaries are mirrored.",
+    "Do not move secrets here. Integration credentials stay in Windows app-data and only redacted summaries are mirrored.",
     "",
   ];
 }
@@ -1926,7 +1927,6 @@ function rebuildVaultManifests(vaultPath = ROOT) {
 }
 
 function relaunchAndExit({ boot = false } = {}) {
-  if (process.platform !== "win32") return false;
   if (!fs.existsSync(HORIZON_HIDDEN_RUNNER)) {
     return false;
   }
@@ -2009,7 +2009,7 @@ async function applyUpdate() {
 
   try {
     await git(["pull", "--ff-only"], { timeout: 180_000 });
-    await execFile(NPM, ["install"], { cwd: REPO_DASHBOARD_DIR, timeout: 240_000 });
+    await execFile(NPM, ["ci", "--no-audit", "--no-fund"], { cwd: REPO_DASHBOARD_DIR, timeout: 240_000 });
   } catch (error) {
     return {
       ...before,
@@ -2178,9 +2178,9 @@ function isOpenReminder(body) {
   return /^- Open reminder:\s*yes\s*$/im.test(String(body || ""));
 }
 
-function issueList(fields, body) {
+function issueList(fields, body, todayIso = currentToday()) {
   const issues = [];
-  const today = parseIsoDate(TODAY);
+  const today = parseIsoDate(todayIso);
   const status = (fields.status || "").toLowerCase();
   const date = parseIsoDate(fields.date);
   const end = parseIsoDate(rangeEndFromBody(body, fields.date));
@@ -2200,14 +2200,14 @@ function issueList(fields, body) {
   return issues;
 }
 
-function itemFromFile(fileName) {
+function itemFromFile(fileName, todayIso = currentToday()) {
   const filePath = safeItemPath(fileName);
   const raw = fs.readFileSync(filePath, "utf8");
   const parsed = parseItemContent(raw);
   const fields = parsed.fields;
   const date = parseIsoDate(fields.date);
   const endDate = parseIsoDate(rangeEndFromBody(parsed.body, fields.date));
-  const today = parseIsoDate(TODAY);
+  const today = parseIsoDate(todayIso);
   const sortDate = date ? fields.date : "9999-12-31";
   const days = date && today ? daysBetween(today, date) : null;
   return {
@@ -2215,17 +2215,17 @@ function itemFromFile(fileName) {
     fields,
     body: parsed.body,
     dateLabel: dateLabel(fields, parsed.body),
-    issues: issueList(fields, parsed.body),
+    issues: issueList(fields, parsed.body, todayIso),
     sortDate,
     endDate: endDate ? endDate.toISOString().slice(0, 10) : "",
     days,
   };
 }
 
-function listItems() {
+function listItems(todayIso = currentToday()) {
   return fs.readdirSync(ITEMS_DIR)
     .filter((name) => name.endsWith(".md") && name !== "index.md")
-    .map(itemFromFile)
+    .map((name) => itemFromFile(name, todayIso))
     .sort((a, b) => a.sortDate.localeCompare(b.sortDate) || a.fields.name.localeCompare(b.fields.name));
 }
 
@@ -2246,7 +2246,8 @@ function saveItem(id, payload) {
 }
 
 function writeNow(items) {
-  const today = parseIsoDate(TODAY);
+  const todayIso = currentToday();
+  const today = parseIsoDate(todayIso);
   const upcoming = items
     .filter((item) => {
       const status = (item.fields.status || "").toLowerCase();
@@ -2260,7 +2261,7 @@ function writeNow(items) {
   const lines = [
     "# Now",
     "",
-    `Upcoming and currently active dated calendar items from ${TODAY} onward.`,
+    `Upcoming and currently active dated calendar items from ${todayIso} onward.`,
     "",
     "## Next Items",
     "",
@@ -2691,7 +2692,7 @@ function writeCapturePacket(payload, options = {}) {
     text,
     "",
     "## Codex Parsing Request",
-    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in the Horizon vault.",
+    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in this Horizon vault.",
     "",
     "- If it has a date, create or update an RCF file in `Calendar/Items/`.",
     "- If it is a general note, keep or move it inside `Inbox/` unless a better existing folder applies.",
@@ -2792,6 +2793,7 @@ const CAPTURE_TRIAGE_SCHEMA = {
               "note_path",
               "email_to",
               "email_subject",
+              "connections",
             ],
             properties: {
               title: { type: "string" },
@@ -2813,6 +2815,7 @@ const CAPTURE_TRIAGE_SCHEMA = {
               note_path: { type: "string" },
               email_to: { type: "string" },
               email_subject: { type: "string" },
+              connections: { type: "string" },
             },
           },
         },
@@ -2845,6 +2848,62 @@ function normalizeCaptureDestination(value) {
   }
 
   return raw;
+}
+
+function semanticConnectionTargets() {
+  const paths = [
+    ...listProjectRegistry().map((project) => project.path),
+    ...listVaultResearchPapers().map((paper) => paper.path),
+    ...listResearchIdeas().map((idea) => idea.path),
+  ];
+  return [...new Set(paths.map((entry) => String(entry || "").replace(/\\/g, "/").replace(/\.md$/i, "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeConnectionInput(value) {
+  const catalog = semanticConnectionTargets();
+  if (!catalog.length) return "";
+
+  const aliases = new Map();
+  const ambiguous = new Set();
+  for (const target of catalog) {
+    aliases.set(target.toLowerCase(), target);
+    const base = path.posix.basename(target).toLowerCase();
+    if (aliases.has(base) && aliases.get(base) !== target) ambiguous.add(base);
+    else aliases.set(base, target);
+  }
+  ambiguous.forEach((key) => aliases.delete(key));
+
+  const raw = String(value || "");
+  const candidates = [
+    ...Array.from(raw.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g), (match) => match[1]),
+    ...raw.split(/\r?\n|,\s*/g),
+  ];
+  const accepted = [];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "")
+      .trim()
+      .replace(/^\[\[/, "")
+      .replace(/\]\]$/, "")
+      .split("|")[0]
+      .split("#")[0]
+      .replace(/\\/g, "/")
+      .replace(/\.md$/i, "")
+      .trim();
+    const target = aliases.get(normalized.toLowerCase());
+    if (target && !accepted.includes(target)) accepted.push(target);
+    if (accepted.length === 3) break;
+  }
+  return accepted.join("\n");
+}
+
+const CONNECTION_ACTION_TYPES = new Set(["save_note", "create_project", "save_research", "save_research_idea"]);
+
+function normalizeActionConnections(action, sourceText = "") {
+  if (!action || !CONNECTION_ACTION_TYPES.has(action.type)) return action;
+  const payload = { ...(action.payload || {}) };
+  const connections = normalizeConnectionInput(`${payload.connections || ""}\n${sourceText || ""}`);
+  return { ...action, payload: { ...payload, connections } };
 }
 
 function normalizeCaptureTriageResult(result) {
@@ -2880,6 +2939,7 @@ function normalizeCaptureTriageResult(result) {
         note_path: String(action.payload?.note_path || ""),
         email_to: String(action.payload?.email_to || ""),
         email_subject: String(action.payload?.email_subject || ""),
+        connections: normalizeConnectionInput(action.payload?.connections),
       },
     })),
     questions: (Array.isArray(result.questions) ? result.questions : []).map((question) => String(question)).filter(Boolean).slice(0, 3),
@@ -2898,6 +2958,7 @@ async function triageCaptureWithAi(payload) {
   const provider = String(settings.provider || "OpenAI").trim().toLowerCase();
   const apiKey = String(settings.tokenOrKey || "").trim();
   const model = String(settings.model || DEFAULT_AI_AGENT_MODEL).trim() || DEFAULT_AI_AGENT_MODEL;
+  const connectionTargets = semanticConnectionTargets();
 
   if (!apiKey) {
     return { ok: false, message: "AI Agent API key is not configured.", state: "api_key_required" };
@@ -2916,12 +2977,15 @@ async function triageCaptureWithAi(payload) {
     // automatically. The zotero hint is config-dependent: registry supplies the
     // configured variant; the unconfigured replacement is state, so it lives here.
     ...captureTriageHints({ zoteroConfigured }),
+    connectionTargets.length
+      ? `For payload.connections, use at most three newline-separated exact targets from this existing-note allowlist: ${connectionTargets.join("; ")}. Leave it empty when no connection is clearly useful.`
+      : "No semantic connection targets currently exist, so leave payload.connections empty.",
     ...(zoteroConfigured
       ? []
       : ["Zotero is not configured. Do not include add_to_zotero actions; use save_note, queue_review, or ask_clarification instead."]),
     "Prefer 1-3 useful actions. Add ask_clarification only when missing information blocks useful progress.",
-    "The local vault root is the folder containing Dashboard and HORIZON.md.",
-    `Current date is ${TODAY}; timezone is America/Los_Angeles.`,
+    "The local vault root is the current Horizon vault.",
+    `Current date is ${currentToday()}; timezone is ${APP_TIME_ZONE}.`,
   ].join(" ");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -2993,14 +3057,15 @@ async function triageCaptureWithAi(payload) {
   };
 }
 
-function normalizeCaptureAction(action) {
-  return normalizeCaptureTriageResult({
+function normalizeCaptureAction(action, sourceText = "") {
+  const normalized = normalizeCaptureTriageResult({
     actions: [action || {}],
     confidence: action?.confidence || "low",
     needs_input: false,
     questions: [],
     summary: action?.reason || "Capture action selected.",
   }).actions[0];
+  return applyCourseworkDeadlineDefault(normalizeActionConnections(normalized, sourceText), sourceText);
 }
 
 // ── PHASE-08: heuristics-first triage orchestrator ────────────────────────────────────
@@ -3042,7 +3107,7 @@ async function triageCapture(payload) {
   if (!text) return { ok: false, message: "Capture text is required.", state: "missing_text" };
 
   const heuristic = normalizeTriageActionsWithSource(
-    heuristicActions(text, { today: TODAY, hasAction: (id) => captureActionById(id).id === id }),
+    heuristicActions(text, { today: currentToday(), hasAction: (id) => captureActionById(id).id === id }),
     "heuristic",
   );
 
@@ -3066,7 +3131,9 @@ async function triageCapture(payload) {
     }
   }
 
-  let actions = mergeTriageActions(heuristic, aiActions);
+  let actions = mergeTriageActions(heuristic, aiActions).map((action) =>
+    applyCourseworkDeadlineDefault(normalizeActionConnections(action, text), text),
+  );
   let needsInput = aiNeedsInput;
   if (!actions.length) {
     // Nothing fired locally and no AI actions — keep the capture safe/actionable with a
@@ -3201,7 +3268,7 @@ function firstDoiFromText(value) {
 // Research Papers/index.md convention: "Author-YYYY.md" - capitalized author name kept
 // as-is (Philip-2017.md, Wang-2023b.md), not lowercase-slugified like safeSlug().
 function safeFileNameSegment(value) {
-  return String(value || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "").trim().slice(0, 60);
+  return String(value || "").replace(/[<>:"/\\|?*\\u0000-\\u001f]/g, "").trim().slice(0, 60);
 }
 
 function firstYearFromText(value) {
@@ -3229,7 +3296,7 @@ function researchCitekeyFromAction(action, text) {
   if (cleanSurname && year) {
     return { citekey: `${cleanSurname}-${year}`, needsCitekey: false, year };
   }
-  return { citekey: `Untitled-${year || TODAY.slice(0, 4)}`, needsCitekey: true, year: year || "" };
+  return { citekey: `Untitled-${year || currentToday().slice(0, 4)}`, needsCitekey: true, year: year || "" };
 }
 
 function researchCitationLine(action, text) {
@@ -3253,8 +3320,31 @@ function researchCitationLine(action, text) {
   return assembled || String(text || "").trim().slice(0, 300) || "Citation not available.";
 }
 
-function applyResearchPaperCaptureAction(action, capture, text) {
-  const { citekey, needsCitekey, year } = researchCitekeyFromAction(action, text);
+async function applyResearchPaperCaptureAction(action, capture, text) {
+  const payload = action.payload || {};
+  const doi = normalizeDoi(payload.doi || firstDoiFromText(`${payload.body || ""}\n${text}`));
+  const metadata = await metadataForDoi(doi, { allowFetch: true });
+  const capturedTitle = String(payload.title || payload.publication_title || "").trim();
+  const enrichedAction = {
+    ...action,
+    payload: {
+      ...payload,
+      authors: payload.authors || metadata?.authors?.join("; ") || "",
+      date: payload.date || metadata?.datePublished || "",
+      doi,
+      publication_title: payload.publication_title || metadata?.publicationTitle || "",
+      title: researchTitleIsPlaceholder(capturedTitle, doi) ? metadata?.title || capturedTitle : capturedTitle || metadata?.title || "",
+    },
+  };
+  const { citekey, needsCitekey, year } = researchCitekeyFromAction(enrichedAction, text);
+  const title = String(enrichedAction.payload.title || citekey.replace(/[-_]+/g, " ")).trim();
+  const authors = String(enrichedAction.payload.authors || "").trim();
+  const datePublished = String(enrichedAction.payload.date || year || "unknown").trim() || "unknown";
+  const rawSummary = String(payload.body || "").trim();
+  const summary = metadata?.abstract || (rawSummary && rawSummary !== text.trim() ? rawSummary : "") || String(text || "").trim() || "unknown";
+  const summaryType = metadata?.abstract ? "abstract" : "summary";
+  const primarySubject = String(payload.subject || payload.category || "General Research").trim() || "General Research";
+  const needsMetadata = !doi || datePublished === "unknown" || !authors || researchTitleIsPlaceholder(title, doi) || summary === "unknown";
   const dir = path.join(ROOT, "Research Papers");
   fs.mkdirSync(dir, { recursive: true });
   const filePath = uniqueFilePath(path.join(dir, `${citekey}.md`));
@@ -3265,20 +3355,34 @@ function applyResearchPaperCaptureAction(action, capture, text) {
     "type: research-paper",
     `citekey: ${finalCitekey}`,
     `year: ${year || "unknown"}`,
+    `title: ${JSON.stringify(title)}`,
+    `authors: ${JSON.stringify(authors || "unknown")}`,
+    `doi: ${JSON.stringify(doi || "unknown")}`,
+    `date_published: ${JSON.stringify(datePublished)}`,
+    `primary_subject: ${JSON.stringify(primarySubject)}`,
+    "reading_status: to_read",
+    "dog_eared: false",
+    `summary_type: ${summaryType}`,
     "status: captured",
   ];
   if (needsCitekey) frontmatterLines.push("needs_citekey: true");
+  if (needsMetadata) frontmatterLines.push("needs_metadata: true");
   frontmatterLines.push("---", "");
+  const connectionLines = normalizeConnectionInput(action.payload?.connections)
+    .split("\n")
+    .filter(Boolean)
+    .map((target) => `- [[${target}]]`);
 
   const body = [
     ...frontmatterLines,
-    researchCitationLine(action, text),
+    researchCitationLine(enrichedAction, text),
     "",
     "[[Reference]]",
     "",
-    "**Insights**",
+    `## ${summaryType === "abstract" ? "Abstract" : "Summary"}`,
     "",
-    `Captured via Horizon: ${String(action.payload?.body || text).trim()}`,
+    summary,
+    ...(connectionLines.length ? ["", "## Connections", "", ...connectionLines] : []),
     "",
     `- Source capture: [[${capture.capture.replace(/\.md$/, "")}]]`,
   ].join("\n");
@@ -3294,16 +3398,22 @@ function applyResearchIdeaCaptureAction(action, capture, text) {
   fs.mkdirSync(dir, { recursive: true });
   const payload = action.payload || {};
   const topic = String(payload.title || payload.topic || text).trim().replace(/\s+/g, " ").slice(0, 120) || "Untitled idea";
-  const filePath = uniqueFilePath(path.join(dir, `${TODAY}__${safeSlug(topic)}.md`));
+  const today = currentToday();
+  const filePath = uniqueFilePath(path.join(dir, `${today}__${safeSlug(topic)}.md`));
+  const connectionLines = normalizeConnectionInput(payload.connections)
+    .split("\n")
+    .filter(Boolean)
+    .map((target) => `- [[${target}]]`);
   const body = [
     "---",
     "type: research-idea",
     "status: new",
-    `created: ${TODAY}`,
+    `created: ${today}`,
     `topic: ${JSON.stringify(topic)}`,
     "---",
     "",
     String(payload.body || text).trim(),
+    ...(connectionLines.length ? ["", "## Connections", "", ...connectionLines] : []),
     "",
     `- Source capture: [[${capture.capture.replace(/\.md$/, "")}]]`,
     "",
@@ -3351,26 +3461,210 @@ function readMarkdownFrontmatter(raw) {
   return fields;
 }
 
-// Split a Research Papers/*.md note into its citation (first body line — already an
-// APA-style reference for both imported and PHASE-07-captured notes) and its abstract
-// (the Insights/body after it). PHASE-14 surfaces both in the Saved Papers browser.
+// Split a Research Papers/*.md note into its citation and a clearly labelled abstract or
+// summary. Older "Insights" notes remain readable as Summary without rewriting the vault.
 function researchPaperParts(raw) {
   const lines = raw.split(/\r?\n/);
   const bodyStart = raw.startsWith("---") ? lines.indexOf("---", 1) + 1 : 0;
   const bodyLines = lines.slice(bodyStart);
   const citationIdx = bodyLines.findIndex((line) => line.trim());
   const citation = citationIdx >= 0 ? bodyLines[citationIdx].trim() : "";
-  const abstract = bodyLines
-    .slice(citationIdx + 1)
+  const remaining = bodyLines.slice(citationIdx + 1);
+  const abstractLabel = remaining.some((line) => /^\s*(?:#{1,6}\s*|\*\*)abstract(?:\*\*)?\s*$/i.test(line)) ? "Abstract" : "Summary";
+  const sectionStart = remaining.findIndex((line) => /^\s*(?:#{1,6}\s*|\*\*)(abstract|summary|insights)(?:\*\*)?\s*$/i.test(line));
+  const contentLines = remaining.slice(sectionStart >= 0 ? sectionStart + 1 : 0);
+  const nextSection = contentLines.findIndex((line) => /^\s*#{1,6}\s+(connections|source|references?)\s*$/i.test(line));
+  const abstract = (nextSection >= 0 ? contentLines.slice(0, nextSection) : contentLines)
     .filter((line) => line.trim() !== "[[Reference]]")
+    .filter((line) => !/^\s*-\s*Source capture:/i.test(line))
+    .filter((line) => !/^\s*(?:\[\[[^\]]+\]\]\s*)+$/.test(line))
     .join("\n")
-    .replace(/^#{1,6}\s*(insights|reference)\s*$/gim, "")
+    .replace(/^#{1,6}\s*(abstract|summary|insights|reference)\s*$/gim, "")
+    .replace(/^\*\*(abstract|summary|insights|reference)\*\*\s*$/gim, "")
+    .replace(/^Captured via Horizon:\s*/i, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { citation, abstract };
+  return { citation, abstract, abstractLabel };
 }
 
-function listResearchPapers() {
+function researchPaperSubjects(raw, selfKey = "") {
+  const ignored = new Set(["reference"]);
+  return [...new Set(
+    Array.from(String(raw || "").matchAll(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g))
+      .map((match) => ({ label: String(match[2] || match[1]).trim(), target: String(match[1] || "").trim() }))
+      .filter(({ target }) => {
+        if (!target || ignored.has(target.toLowerCase()) || /^(Inbox\/Captures|Runs\/|Calendar\/Items\/)/i.test(target)) return false;
+        if (/\.(?:png|jpe?g|gif|webp|svg|pdf)$/i.test(target)) return false;
+        return path.posix.basename(target.replace(/\\/g, "/")).toLowerCase() !== String(selfKey || "").toLowerCase();
+      })
+      .map(({ label, target }) => label || path.posix.basename(target.replace(/\\/g, "/")))
+      .filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+const RESEARCH_READING_STATUSES = new Set(["to_read", "skimming", "read", "annotated"]);
+const RESEARCH_LIBRARY_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+let researchMetadataCache = null;
+const researchMetadataInflight = new Map();
+
+function knownResearchValue(value) {
+  const text = String(value || "").trim();
+  return Boolean(text && text.toLowerCase() !== "unknown" && text.toLowerCase() !== "n.d.");
+}
+
+function normalizeDoi(value) {
+  const text = String(value || "").trim();
+  if (!text || /^file:/i.test(text)) return "";
+  const match = text.match(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+  return match ? match[0].replace(/[.,;:!?]+$/, "").toLowerCase() : "";
+}
+
+function cleanResearchText(value) {
+  return String(value || "")
+    .replace(/<\/?(?:div|p|br|span|i|b|em|strong|sub|sup)[^>]*>/gi, " ")
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/(^|\s)[#>-]+\s+/g, "$1")
+    .replace(/[*_`]+/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function parseResearchAuthors(value) {
+  const text = String(value || "").trim().replace(/^"|"$/g, "");
+  if (!text) return [];
+  if (text.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map((item) => cleanResearchText(item)).filter(Boolean);
+    } catch {
+      // Older notes use a compact string rather than a YAML array.
+    }
+  }
+  return text.split(/\s*;\s*/).map(cleanResearchText).filter(Boolean);
+}
+
+function citationResearchIdentity(citation, fallbackCitekey = "") {
+  const raw = String(citation || "").trim();
+  const plain = cleanResearchText(raw.replace(/[_*]/g, ""));
+  const dateMatch = plain.match(/\((?:(19|20)\d{2}|n\.d\.)\)\.?/i);
+  const authorText = dateMatch ? plain.slice(0, dateMatch.index).replace(/[.,\s]+$/, "") : "";
+  let title = "";
+
+  if (dateMatch) {
+    const rawDateMatch = raw.match(/\((?:(19|20)\d{2}|n\.d\.)\)\.?/i);
+    const remainder = rawDateMatch ? raw.slice(rawDateMatch.index + rawDateMatch[0].length).trim() : "";
+    if (/^[_*]/.test(remainder)) {
+      const marker = remainder[0];
+      const closing = remainder.indexOf(marker, 1);
+      title = cleanResearchText(closing > 1 ? remainder.slice(1, closing) : remainder);
+    } else {
+      const titleMatch = remainder.match(/^(.+?)\.\s+(?:[_*]|[A-Z][^:]{1,80}(?:,|\.|\d))/);
+      title = cleanResearchText(titleMatch?.[1] || remainder.split(/\.\s+_/)[0]);
+    }
+  } else {
+    const beforePublication = raw.split(/\.\s+[_*]/)[0];
+    const authorBreak = beforePublication.match(/^(.+?\.)\s+([A-Z].+)$/);
+    title = cleanResearchText(authorBreak?.[2] || "");
+  }
+
+  const fallbackAuthor = String(fallbackCitekey || "").split("-")[0].replace(/[_-]+/g, " ");
+  return {
+    authors: authorText ? [authorText] : fallbackAuthor ? [fallbackAuthor] : [],
+    title: title || String(fallbackCitekey || "").replace(/[-_]+/g, " "),
+  };
+}
+
+function researchAuthorLabel(authors, citekey = "") {
+  const values = Array.isArray(authors) ? authors.filter(Boolean) : [];
+  if (!values.length) return String(citekey || "Unknown author").split("-")[0].replace(/[_-]+/g, " ");
+  const first = values[0];
+  const surname = first.includes(",")
+    ? first.split(",")[0].trim()
+    : first.trim().split(/\s+/).slice(-1)[0];
+  return values.length > 1 ? `${surname} et al.` : surname || first;
+}
+
+function researchSummaryPreview(value, limit = 210) {
+  const clean = cleanResearchText(value).replace(/^Captured via Horizon:\s*/i, "");
+  if (clean.length <= limit) return clean;
+  const clipped = clean.slice(0, limit + 1);
+  const sentence = clipped.lastIndexOf(". ");
+  const word = clipped.lastIndexOf(" ");
+  return `${clipped.slice(0, sentence > limit * 0.55 ? sentence + 1 : word > 0 ? word : limit).trim()}…`;
+}
+
+function normalizedResearchTitle(value) {
+  return cleanResearchText(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function researchTitleIsPlaceholder(value, doi = "") {
+  const title = cleanResearchText(value);
+  if (!knownResearchValue(title) || /^(?:untitled(?: paper)?|unknown|new item)$/i.test(title)) return true;
+  if (/^https?:\/\/\S+$/i.test(title)) return true;
+
+  const normalizedDoi = normalizeDoi(doi);
+  const titleDoi = normalizeDoi(title);
+  return Boolean(
+    normalizedDoi
+    && titleDoi === normalizedDoi
+    && normalizedResearchTitle(title) === normalizedResearchTitle(normalizedDoi),
+  );
+}
+
+function finalizeResearchPaper(paper) {
+  const doi = normalizeDoi(paper.doi) || "unknown";
+  const datePublished = knownResearchValue(paper.datePublished) ? String(paper.datePublished) : "unknown";
+  const authors = Array.isArray(paper.authors) ? paper.authors.filter(Boolean) : [];
+  const title = knownResearchValue(paper.title) ? cleanResearchText(paper.title) : String(paper.citekey || "Untitled paper").replace(/[-_]+/g, " ");
+  const abstract = cleanResearchText(paper.abstract);
+  const primarySubject = knownResearchValue(paper.primarySubject) ? cleanResearchText(paper.primarySubject) : "General Research";
+  const subjects = [...new Set([primarySubject, ...(paper.subjects || []).map(cleanResearchText).filter(Boolean)])];
+  const missingFields = [];
+  if (researchTitleIsPlaceholder(title, doi)) missingFields.push("Title");
+  if (!authors.length) missingFields.push("Author");
+  if (doi === "unknown") missingFields.push("DOI");
+  if (datePublished === "unknown") missingFields.push("Date published");
+  if (!abstract) missingFields.push("Abstract or summary");
+  const readingStatus = RESEARCH_READING_STATUSES.has(paper.readingStatus) ? paper.readingStatus : "to_read";
+  return {
+    ...paper,
+    abstract,
+    abstractLabel: paper.abstractLabel === "Abstract" ? "Abstract" : "Summary",
+    apaCitation: cleanResearchText(paper.apaCitation || paper.citation),
+    authorLabel: researchAuthorLabel(authors, paper.citekey),
+    authors,
+    citation: cleanResearchText(paper.citation || paper.apaCitation),
+    datePublished,
+    dogEared: Boolean(paper.dogEared),
+    doi,
+    duplicateCopies: Math.max(1, Number(paper.duplicateCopies) || 1),
+    metadataComplete: missingFields.length === 0,
+    metadataConflicts: Array.isArray(paper.metadataConflicts) ? paper.metadataConflicts : [],
+    missingFields,
+    primarySubject,
+    readingStatus,
+    subjects,
+    summary: researchSummaryPreview(abstract || paper.citation || title),
+    summaryPreview: researchSummaryPreview(abstract || paper.citation || title),
+    title,
+    year: firstYearFromText(datePublished) || String(paper.year || "unknown"),
+  };
+}
+
+function listVaultResearchPapers() {
   const dir = path.join(ROOT, "Research Papers");
   if (!fs.existsSync(dir)) return [];
   return fs
@@ -3380,19 +3674,534 @@ function listResearchPapers() {
       const filePath = path.join(dir, name);
       const raw = fs.readFileSync(filePath, "utf8");
       const fields = readMarkdownFrontmatter(raw);
-      const { citation, abstract } = researchPaperParts(raw);
-      return {
+      const { citation, abstract, abstractLabel } = researchPaperParts(raw);
+      const citekey = fields.citekey || path.basename(name, ".md");
+      const identity = citationResearchIdentity(citation, citekey);
+      const authors = parseResearchAuthors(fields.authors);
+      const linkedSubjects = researchPaperSubjects(raw, citekey);
+      const legacyStatus = String(fields.status || "").toLowerCase();
+      const readingStatus = RESEARCH_READING_STATUSES.has(fields.reading_status)
+        ? fields.reading_status
+        : ["read", "annotated"].includes(legacyStatus) ? legacyStatus : "to_read";
+      const datePublished = fields.date_published || fields.publication_date || fields.published || fields.date || fields.year || firstYearFromText(citation) || "unknown";
+      const citationYear = firstYearFromText(citation);
+      const storedYear = firstYearFromText(datePublished);
+      const metadataConflicts = citationYear && storedYear && citationYear !== storedYear
+        ? [`Vault metadata year ${storedYear} differs from the citation year ${citationYear}.`]
+        : [];
+      return finalizeResearchPaper({
         abstract,
-        citation, // full first body line = APA-style reference (untruncated, for copy)
-        citekey: fields.citekey || path.basename(name, ".md"),
+        abstractLabel,
+        apaCitation: citation,
+        authors: authors.length ? authors : identity.authors,
+        citation,
+        citekey,
+        datePublished,
+        dogEared: fields.dog_eared === "true",
+        doi: normalizeDoi(fields.doi || firstDoiFromText(raw)) || "unknown",
+        id: `vault:Research Papers/${name}`,
+        metadataConflicts,
         needsCitekey: fields.needs_citekey === "true",
         path: `Research Papers/${name}`,
+        primarySubject: fields.primary_subject || linkedSubjects[0] || "General Research",
+        readingStatus,
+        source: "vault",
         status: fields.status || "unknown",
-        summary: citation.slice(0, 140),
+        subjects: linkedSubjects,
+        title: fields.title || identity.title,
         year: fields.year || "unknown",
-      };
+        zoteroKey: fields.zotero_key || "",
+        zoteroUrl: "",
+      });
     })
-    .sort((a, b) => b.year.localeCompare(a.year) || a.citekey.localeCompare(b.citekey));
+    .sort((a, b) => String(b.year).localeCompare(String(a.year)) || a.citekey.localeCompare(b.citekey));
+}
+
+function zoteroCredentials() {
+  const settings = mergedIntegrationSettings("zotero");
+  return {
+    apiKey: String(settings.zoteroApiKey || "").trim(),
+    userId: String(settings.zoteroUserId || "").trim(),
+  };
+}
+
+function researchExternalIntegrationsDisabled() {
+  return process.env.HORIZON_DISABLE_EXTERNAL_INTEGRATIONS === "1";
+}
+
+async function fetchZoteroPages(userId, apiKey, resource, query = {}) {
+  const all = [];
+  for (let start = 0; ; start += 100) {
+    const params = new URLSearchParams({ ...query, limit: "100", start: String(start) });
+    const response = await fetch(`https://api.zotero.org/users/${encodeURIComponent(userId)}/${resource}?${params}`, {
+      headers: { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" },
+    });
+    if (!response.ok) throw new Error(`Zotero library request failed with HTTP ${response.status}.`);
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error("Zotero returned an unreadable library response.");
+    all.push(...page);
+    const total = Number(response.headers.get("total-results") || all.length);
+    if (!page.length || all.length >= total) break;
+  }
+  return all;
+}
+
+async function readZoteroResearchLibrary({ force = false } = {}) {
+  const cached = safeJsonRead(RESEARCH_LIBRARY_CACHE_PATH, null);
+  const cachedAt = Date.parse(cached?.fetchedAt || "");
+  if (!force && cached && Number.isFinite(cachedAt) && Date.now() - cachedAt < RESEARCH_LIBRARY_CACHE_MAX_AGE_MS) {
+    return { ...cached, status: "cached" };
+  }
+
+  const { apiKey, userId } = zoteroCredentials();
+  if (!apiKey || !userId) return { collections: [], fetchedAt: null, items: [], status: "not_configured", userId: "" };
+  if (researchExternalIntegrationsDisabled()) {
+    return cached ? { ...cached, status: "cached" } : { collections: [], fetchedAt: null, items: [], status: "offline", userId };
+  }
+
+  try {
+    const [items, collections] = await Promise.all([
+      fetchZoteroPages(userId, apiKey, "items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
+      fetchZoteroPages(userId, apiKey, "collections", { format: "json" }),
+    ]);
+    const next = { collections, fetchedAt: nowIso(), items, userId, version: 1 };
+    writeJson(RESEARCH_LIBRARY_CACHE_PATH, next);
+    return { ...next, status: "connected" };
+  } catch (error) {
+    if (cached) return { ...cached, error: error.message, status: "stale" };
+    return { collections: [], error: error.message, fetchedAt: null, items: [], status: "offline", userId };
+  }
+}
+
+function zoteroCollectionRoots(collections) {
+  const byKey = new Map(collections.map((collection) => [collection.key, collection]));
+  const roots = new Map();
+  function rootName(key, seen = new Set()) {
+    if (!key || seen.has(key)) return "";
+    seen.add(key);
+    const collection = byKey.get(key);
+    if (!collection) return "";
+    const parent = collection.data?.parentCollection;
+    return parent ? rootName(parent, seen) : cleanResearchText(collection.data?.name);
+  }
+  for (const key of byKey.keys()) roots.set(key, rootName(key));
+  return roots;
+}
+
+function zoteroCreators(data) {
+  return (Array.isArray(data?.creators) ? data.creators : [])
+    .filter((creator) => creator.creatorType === "author" || creator.creatorType === "editor")
+    .map((creator) => cleanResearchText(creator.name || [creator.lastName, creator.firstName].filter(Boolean).join(", ")))
+    .filter(Boolean);
+}
+
+function normalizedPublicationDate(value) {
+  const text = cleanResearchText(value);
+  const compact = text.match(/^((?:19|20)\d{2})(\d{2})(\d{2})$/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  const compactMonth = text.match(/^((?:19|20)\d{2})(\d{2})$/);
+  if (compactMonth) return `${compactMonth[1]}-${compactMonth[2]}`;
+  return text;
+}
+
+function zoteroPapers(library) {
+  const collectionRoots = zoteroCollectionRoots(library.collections || []);
+  return (library.items || []).map((item) => {
+    const data = item.data || {};
+    const datePublished = normalizedPublicationDate(data.date);
+    const citekey = `${researchAuthorLabel(zoteroCreators(data), "Unknown")}-${firstYearFromText(datePublished) || "n.d."}`;
+    const subjects = [...new Set((data.collections || []).map((key) => collectionRoots.get(key)).filter(Boolean))];
+    const primarySubject = subjects[0] || "Unsorted";
+    return finalizeResearchPaper({
+      abstract: data.abstractNote || "",
+      abstractLabel: data.abstractNote ? "Abstract" : "Summary",
+      apaCitation: item.bib || "",
+      authors: zoteroCreators(data),
+      citation: item.bib || "",
+      citekey,
+      datePublished: datePublished || "unknown",
+      dogEared: false,
+      doi: normalizeDoi(data.DOI || data.extra || data.url || data.title) || "unknown",
+      id: `zotero:${item.key}`,
+      itemType: data.itemType || "document",
+      metadataConflicts: [],
+      needsCitekey: false,
+      path: "",
+      primarySubject,
+      readingStatus: "to_read",
+      source: "zotero",
+      status: "zotero",
+      subjects,
+      title: data.title || "Untitled paper",
+      year: firstYearFromText(datePublished) || "unknown",
+      zoteroKey: item.key,
+      zoteroUrl: item.links?.alternate?.href || `https://www.zotero.org/users/${encodeURIComponent(library.userId)}/items/${encodeURIComponent(item.key)}`,
+    });
+  });
+}
+
+function zoteroPaperQuality(paper) {
+  return (
+    (researchTitleIsPlaceholder(paper.title, paper.doi) ? 0 : 12)
+    + Math.min(8, paper.authors?.length || 0)
+    + (knownResearchValue(paper.datePublished) ? 5 : 0)
+    + (paper.abstract ? Math.min(8, Math.ceil(paper.abstract.length / 180)) : 0)
+    + (paper.itemType === "journalArticle" ? 3 : 0)
+  );
+}
+
+function collapseZoteroDuplicates(papers) {
+  const unique = [];
+  const indexByDoi = new Map();
+  for (const paper of papers) {
+    const doi = normalizeDoi(paper.doi);
+    if (!doi) {
+      unique.push(paper);
+      continue;
+    }
+    const existingIndex = indexByDoi.get(doi);
+    if (existingIndex === undefined) {
+      indexByDoi.set(doi, unique.length);
+      unique.push(paper);
+      continue;
+    }
+
+    const existing = unique[existingIndex];
+    const preferred = zoteroPaperQuality(paper) > zoteroPaperQuality(existing) ? paper : existing;
+    const other = preferred === paper ? existing : paper;
+    unique[existingIndex] = finalizeResearchPaper({
+      ...preferred,
+      abstract: preferred.abstract || other.abstract,
+      authors: preferred.authors?.length ? preferred.authors : other.authors,
+      datePublished: knownResearchValue(preferred.datePublished) ? preferred.datePublished : other.datePublished,
+      duplicateCopies: (existing.duplicateCopies || 1) + (paper.duplicateCopies || 1),
+      primarySubject: preferred.primarySubject !== "Unsorted" ? preferred.primarySubject : other.primarySubject,
+      subjects: [...new Set([...(preferred.subjects || []), ...(other.subjects || [])])],
+      title: researchTitleIsPlaceholder(preferred.title, doi) ? other.title : preferred.title,
+    });
+  }
+  return unique;
+}
+
+function crossrefDate(message) {
+  const candidates = [message?.["published-print"], message?.["published-online"], message?.issued, message?.created];
+  for (const candidate of candidates) {
+    const parts = candidate?.["date-parts"]?.[0];
+    if (Array.isArray(parts) && parts[0]) return parts.filter(Boolean).join("-");
+  }
+  return "";
+}
+
+function researchAuthorInitials(value) {
+  return cleanResearchText(value)
+    .split(/[\s-]+/)
+    .map((part) => part.match(/[\p{L}]/u)?.[0])
+    .filter(Boolean)
+    .map((initial) => `${initial.toUpperCase()}.`)
+    .join(" ");
+}
+
+function crossrefApaCitation(message, doi) {
+  const authorNames = (message?.author || [])
+    .map((author) => {
+      const family = cleanResearchText(author.family || "");
+      const initials = researchAuthorInitials(author.given || "");
+      return family ? `${family}${initials ? `, ${initials}` : ""}` : "";
+    })
+    .filter(Boolean);
+  const authorText = authorNames.length > 1
+    ? `${authorNames.slice(0, -1).join(", ")}, & ${authorNames.at(-1)}`
+    : authorNames[0] || "";
+  const year = firstYearFromText(crossrefDate(message)) || "n.d.";
+  const title = cleanResearchText(message?.title?.[0] || "");
+  const journal = cleanResearchText(message?.["container-title"]?.[0] || "");
+  const volume = cleanResearchText(message?.volume || "");
+  const issue = cleanResearchText(message?.issue || "");
+  const pages = cleanResearchText(message?.page || "").replace(/(\d)\s*-\s*(\d)/g, "$1–$2");
+  const publication = journal
+    ? `${journal}${volume ? `, ${volume}` : ""}${issue ? `(${issue})` : ""}${pages ? `, ${pages}` : ""}.`
+    : "";
+  return [
+    authorText ? `${authorText} (${year}).` : `(${year}).`,
+    title ? `${title.replace(/\.+$/, "")}.` : "",
+    publication,
+    normalizeDoi(doi) ? `https://doi.org/${normalizeDoi(doi)}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+async function metadataForDoi(value, { allowFetch = false } = {}) {
+  const doi = normalizeDoi(value);
+  if (!doi) return null;
+  if (!researchMetadataCache) {
+    researchMetadataCache = safeJsonRead(RESEARCH_METADATA_CACHE_PATH, { entries: {}, version: 1 });
+  }
+  const cache = researchMetadataCache;
+  if (cache.entries?.[doi]) return cache.entries[doi];
+  if (!allowFetch || researchExternalIntegrationsDisabled()) return null;
+  if (researchMetadataInflight.has(doi)) return researchMetadataInflight.get(doi);
+
+  const request = (async () => {
+    try {
+      const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+        headers: { "User-Agent": "HorizonOS/0.2 (+https://github.com/BoomerRawlings/horizon-os)" },
+        signal: AbortSignal.timeout(12000),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.message) return null;
+      const message = body.message;
+      const metadata = {
+        abstract: cleanResearchText(message.abstract || "").replace(/^abstract\s+/i, ""),
+        apaCitation: crossrefApaCitation(message, doi),
+        authors: (message.author || []).map((author) => cleanResearchText([author.family, author.given].filter(Boolean).join(", "))).filter(Boolean),
+        datePublished: crossrefDate(message),
+        doi,
+        fetchedAt: nowIso(),
+        publicationTitle: cleanResearchText(message["container-title"]?.[0] || ""),
+        source: "crossref",
+        title: cleanResearchText(message.title?.[0] || ""),
+      };
+      cache.entries = { ...(cache.entries || {}), [doi]: metadata };
+      cache.updatedAt = nowIso();
+      writeJson(RESEARCH_METADATA_CACHE_PATH, cache);
+      return metadata;
+    } catch {
+      return null;
+    } finally {
+      researchMetadataInflight.delete(doi);
+    }
+  })();
+  researchMetadataInflight.set(doi, request);
+  return request;
+}
+
+function applyExactResearchMetadata(paper, metadata) {
+  if (!metadata) return paper;
+  const placeholderTitle = researchTitleIsPlaceholder(paper.title, paper.doi);
+  const useExactAbstract = Boolean(metadata.abstract && (!paper.abstract || placeholderTitle));
+  const useExactCitation = Boolean(metadata.apaCitation && (placeholderTitle || !knownResearchValue(paper.apaCitation || paper.citation)));
+  return finalizeResearchPaper({
+    ...paper,
+    abstract: useExactAbstract ? metadata.abstract : paper.abstract,
+    abstractLabel: useExactAbstract ? "Abstract" : paper.abstractLabel,
+    apaCitation: useExactCitation ? metadata.apaCitation : paper.apaCitation,
+    authors: paper.authors.length ? paper.authors : metadata.authors,
+    citation: useExactCitation ? metadata.apaCitation : paper.citation,
+    datePublished: knownResearchValue(paper.datePublished) ? paper.datePublished : metadata.datePublished,
+    title: placeholderTitle ? metadata.title || paper.title : paper.title,
+  });
+}
+
+function researchPaperNeedsExactMetadata(paper) {
+  return Boolean(
+    normalizeDoi(paper.doi)
+    && (
+      researchTitleIsPlaceholder(paper.title, paper.doi)
+      || !paper.authors?.length
+      || !knownResearchValue(paper.datePublished)
+      || !paper.abstract
+      || !knownResearchValue(paper.apaCitation || paper.citation)
+    ),
+  );
+}
+
+function mergeResearchPapers(localPaper, zoteroPaper) {
+  if (!localPaper) return zoteroPaper;
+  if (!zoteroPaper) return localPaper;
+  const conflicts = [...(localPaper.metadataConflicts || [])];
+  const localYear = firstYearFromText(localPaper.datePublished);
+  const zoteroYear = firstYearFromText(zoteroPaper.datePublished);
+  if (localYear && zoteroYear && localYear !== zoteroYear) {
+    conflicts.push(`Vault year ${localYear} differs from Zotero year ${zoteroYear}.`);
+  }
+  return finalizeResearchPaper({
+    ...zoteroPaper,
+    ...localPaper,
+    abstract: localPaper.abstract || zoteroPaper.abstract,
+    abstractLabel: localPaper.abstract ? localPaper.abstractLabel : zoteroPaper.abstractLabel,
+    apaCitation: zoteroPaper.apaCitation || localPaper.apaCitation,
+    authors: zoteroPaper.authors.length ? zoteroPaper.authors : localPaper.authors,
+    citation: zoteroPaper.apaCitation || localPaper.citation,
+    datePublished: knownResearchValue(localPaper.datePublished) ? localPaper.datePublished : zoteroPaper.datePublished,
+    doi: normalizeDoi(localPaper.doi) || normalizeDoi(zoteroPaper.doi) || "unknown",
+    duplicateCopies: Math.max(localPaper.duplicateCopies || 1, zoteroPaper.duplicateCopies || 1),
+    metadataConflicts: conflicts,
+    primarySubject: zoteroPaper.primarySubject !== "Unsorted" ? zoteroPaper.primarySubject : localPaper.primarySubject,
+    source: "vault+zotero",
+    subjects: [...new Set([...(zoteroPaper.subjects || []), ...(localPaper.subjects || [])])],
+    title: researchTitleIsPlaceholder(zoteroPaper.title, zoteroPaper.doi) ? localPaper.title : zoteroPaper.title,
+    zoteroKey: zoteroPaper.zoteroKey,
+    zoteroUrl: zoteroPaper.zoteroUrl,
+  });
+}
+
+function applyResearchPaperState(paper, state) {
+  const stored = state?.[paper.id] || state?.[`zotero:${paper.zoteroKey}`] || null;
+  if (!stored) return paper;
+  return finalizeResearchPaper({
+    ...paper,
+    dogEared: stored.dogEared === undefined ? paper.dogEared : Boolean(stored.dogEared),
+    readingStatus: RESEARCH_READING_STATUSES.has(stored.readingStatus) ? stored.readingStatus : paper.readingStatus,
+  });
+}
+
+async function listResearchLibrary({ enrich = false, force = false } = {}) {
+  const localPapers = listVaultResearchPapers();
+  const library = await readZoteroResearchLibrary({ force });
+  const rawRemotePapers = zoteroPapers(library);
+  const remotePapers = collapseZoteroDuplicates(rawRemotePapers);
+  const remoteByDoi = new Map(remotePapers.filter((paper) => normalizeDoi(paper.doi)).map((paper) => [normalizeDoi(paper.doi), paper]));
+  const remoteByTitle = new Map(remotePapers.filter((paper) => normalizedResearchTitle(paper.title).length > 16).map((paper) => [normalizedResearchTitle(paper.title), paper]));
+  const matchedRemote = new Set();
+  const merged = localPapers.map((paper) => {
+    const remote = remoteByDoi.get(normalizeDoi(paper.doi)) || remoteByTitle.get(normalizedResearchTitle(paper.title));
+    if (remote) matchedRemote.add(remote.id);
+    return mergeResearchPapers(paper, remote);
+  });
+  merged.push(...remotePapers.filter((paper) => !matchedRemote.has(paper.id)));
+
+  const enriched = await Promise.all(merged.map(async (paper) => (
+    applyExactResearchMetadata(paper, await metadataForDoi(paper.doi))
+  )));
+  const enrichment = { attempted: 0, resolved: 0, unresolved: 0 };
+  if (enrich) {
+    const candidates = enriched
+      .map((paper, index) => ({ index, paper }))
+      .filter(({ paper }) => researchPaperNeedsExactMetadata(paper));
+    enrichment.attempted = candidates.length;
+
+    // Crossref asks clients to be polite. Three requests at a time also prevents one
+    // noisy refresh from silently dropping most of a library's metadata lookups.
+    for (let start = 0; start < candidates.length; start += 3) {
+      const batch = candidates.slice(start, start + 3);
+      const completed = await Promise.all(batch.map(async ({ index, paper }) => ({
+        index,
+        paper: applyExactResearchMetadata(paper, await metadataForDoi(paper.doi, { allowFetch: true })),
+      })));
+      for (const item of completed) enriched[item.index] = item.paper;
+    }
+    enrichment.resolved = candidates.filter(({ index }) => !researchPaperNeedsExactMetadata(enriched[index])).length;
+    enrichment.unresolved = enrichment.attempted - enrichment.resolved;
+  }
+  const state = safeJsonRead(RESEARCH_PAPER_STATE_PATH, {});
+  const papers = enriched
+    .map((paper) => applyResearchPaperState(paper, state))
+    .sort((a, b) => {
+      const aKnown = knownResearchValue(a.datePublished);
+      const bKnown = knownResearchValue(b.datePublished);
+      if (aKnown !== bKnown) return aKnown ? -1 : 1;
+      return String(b.datePublished).localeCompare(String(a.datePublished)) || a.title.localeCompare(b.title);
+    });
+
+  return {
+    enrichment,
+    papers,
+    sources: {
+      duplicateCount: rawRemotePapers.length - remotePapers.length,
+      lastSyncedAt: library.fetchedAt || null,
+      mergedCount: papers.length,
+      status: library.status,
+      vaultCount: localPapers.length,
+      zoteroCount: rawRemotePapers.length,
+    },
+  };
+}
+
+function safeResearchPaperPath(value) {
+  const normalized = normalizeVaultRelativePath(value);
+  if (!/^Research Papers\/[^/]+\.md$/i.test(normalized)) return "";
+  const filePath = path.resolve(ROOT, ...normalized.split("/"));
+  const root = path.resolve(ROOT, "Research Papers");
+  return filePath.startsWith(`${root}${path.sep}`) ? filePath : "";
+}
+
+async function updateResearchPaperState(payload) {
+  const id = String(payload.id || "").trim();
+  const pathValue = String(payload.path || (id.startsWith("vault:") ? id.slice(6) : "")).trim();
+  const readingStatus = String(payload.readingStatus || "").trim();
+  if (readingStatus && !RESEARCH_READING_STATUSES.has(readingStatus)) {
+    return { message: "Unknown reading stage.", ok: false, state: "invalid_status", statusCode: 400 };
+  }
+  const filePath = safeResearchPaperPath(pathValue);
+  if (filePath && fs.existsSync(filePath)) {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const updates = {};
+    if (readingStatus) updates.reading_status = readingStatus;
+    if (typeof payload.dogEared === "boolean") updates.dog_eared = payload.dogEared ? "true" : "false";
+    fs.writeFileSync(filePath, updateMarkdownFrontmatterFields(raw, updates), "utf8");
+    return { ok: true, state: "updated", statusCode: 200 };
+  }
+
+  const zoteroKey = String(payload.zoteroKey || (id.startsWith("zotero:") ? id.slice(7) : "")).trim();
+  if (!zoteroKey) return { message: "Paper not found.", ok: false, state: "not_found", statusCode: 404 };
+  const state = safeJsonRead(RESEARCH_PAPER_STATE_PATH, {});
+  const key = `zotero:${zoteroKey}`;
+  state[key] = {
+    ...(state[key] || {}),
+    ...(readingStatus ? { readingStatus } : {}),
+    ...(typeof payload.dogEared === "boolean" ? { dogEared: payload.dogEared } : {}),
+    updatedAt: nowIso(),
+  };
+  writeJson(RESEARCH_PAPER_STATE_PATH, state);
+  return { ok: true, state: "updated", statusCode: 200 };
+}
+
+async function syncResearchLibrary() {
+  const firstPass = await listResearchLibrary({ enrich: true, force: true });
+  let updatedNotes = 0;
+  for (const paper of firstPass.papers.filter((item) => item.path)) {
+    const filePath = safeResearchPaperPath(paper.path);
+    if (!filePath || !fs.existsSync(filePath)) continue;
+    const raw = fs.readFileSync(filePath, "utf8");
+    const fields = readMarkdownFrontmatter(raw);
+    const updates = {};
+    const setMissing = (key, value, { replacePlaceholder = false } = {}) => {
+      const currentIsPlaceholder = replacePlaceholder && researchTitleIsPlaceholder(fields[key], paper.doi);
+      if ((!knownResearchValue(fields[key]) || currentIsPlaceholder) && knownResearchValue(value)) {
+        updates[key] = JSON.stringify(String(value));
+      }
+    };
+    setMissing("title", paper.title, { replacePlaceholder: true });
+    setMissing("authors", paper.authors.join("; "));
+    setMissing("date_published", paper.datePublished);
+    if (normalizeDoi(paper.doi)) setMissing("doi", normalizeDoi(paper.doi));
+    setMissing("primary_subject", paper.primarySubject);
+    if (paper.zoteroKey) setMissing("zotero_key", paper.zoteroKey);
+    if (!RESEARCH_READING_STATUSES.has(fields.reading_status)) updates.reading_status = paper.readingStatus || "to_read";
+    if (!knownResearchValue(fields.dog_eared)) updates.dog_eared = paper.dogEared ? "true" : "false";
+    if (Object.keys(updates).length) {
+      updates.metadata_updated = currentToday();
+      fs.writeFileSync(filePath, updateMarkdownFrontmatterFields(raw, updates), "utf8");
+      updatedNotes += 1;
+    }
+  }
+  const result = await listResearchLibrary();
+  return {
+    ...result,
+    sync: {
+      metadataAttempted: firstPass.enrichment.attempted,
+      metadataResolved: firstPass.enrichment.resolved,
+      metadataUnresolved: firstPass.enrichment.unresolved,
+      updatedNotes,
+    },
+  };
+}
+
+function copyResearchTextToClipboard(value) {
+  const text = String(value || "");
+  if (!text || text.length > 50000) return false;
+  let result;
+  if (process.platform === "win32") {
+    result = childProcess.spawnSync(
+      POWERSHELL,
+      ["-NoProfile", "-NonInteractive", "-Command", "Set-Clipboard -Value ([Console]::In.ReadToEnd())"],
+      { encoding: "utf8", input: text, windowsHide: true },
+    );
+  } else if (process.platform === "darwin") {
+    result = childProcess.spawnSync("pbcopy", [], { encoding: "utf8", input: text });
+  } else {
+    result = childProcess.spawnSync("xclip", ["-selection", "clipboard"], { encoding: "utf8", input: text });
+  }
+  return !result.error && result.status === 0;
 }
 
 // PHASE-09 projects bridge: vault Project Registry/*.md is the human-maintained source
@@ -3439,13 +4248,14 @@ function listProjectRegistry({ includeAll = false } = {}) {
           name: fields.project || id,
           path: `Project Registry/${name}`,
           status: fields.status || "active",
+          type: fields.type || "",
           updated: fields.updated || "",
         };
       }),
     };
   }
 
-  const projects = projectRegistryCache.projects;
+  const projects = projectRegistryCache.projects.filter((project) => project.type === "project-registry");
   return includeAll ? projects : projects.filter((project) => !RETIRED_PROJECT_STATUSES.has(project.status));
 }
 
@@ -3454,6 +4264,57 @@ function findProjectRegistryEntry(identifier) {
   if (!needle) return null;
   const projects = listProjectRegistry({ includeAll: true });
   return projects.find((project) => project.id.toLowerCase() === needle || project.name.toLowerCase() === needle) || null;
+}
+
+function updateMarkdownFrontmatterFields(raw, updates) {
+  const eol = String(raw || "").includes("\r\n") ? "\r\n" : "\n";
+  const lines = String(raw || "").replace(/\r\n/g, "\n").split("\n");
+  if (lines[0] !== "---") throw new Error("Project registry note is missing frontmatter.");
+  let closingIndex = lines.indexOf("---", 1);
+  if (closingIndex < 0) throw new Error("Project registry note has incomplete frontmatter.");
+
+  for (const [key, value] of Object.entries(updates)) {
+    const fieldIndex = lines.slice(1, closingIndex).findIndex((line) => line.startsWith(`${key}:`));
+    if (fieldIndex >= 0) {
+      lines[fieldIndex + 1] = `${key}: ${value}`;
+    } else {
+      lines.splice(closingIndex, 0, `${key}: ${value}`);
+      closingIndex += 1;
+    }
+  }
+
+  return lines.join(eol);
+}
+
+function updateProjectRegistryStatus(identifier, status) {
+  const allowedStatuses = new Set(["active", "dormant", "retired"]);
+  if (!allowedStatuses.has(status)) return { ok: false, state: "invalid_status", statusCode: 400 };
+
+  const entry = findProjectRegistryEntry(identifier);
+  if (!entry) return { ok: false, state: "not_found", statusCode: 404 };
+
+  const fileName = path.basename(entry.path);
+  const filePath = path.resolve(PROJECT_REGISTRY_DIR, fileName);
+  const registryRoot = path.resolve(PROJECT_REGISTRY_DIR);
+  if (!filePath.startsWith(`${registryRoot}${path.sep}`)) {
+    return { ok: false, state: "invalid_path", statusCode: 400 };
+  }
+
+  const raw = fs.readFileSync(filePath, "utf8");
+  fs.writeFileSync(
+    filePath,
+    updateMarkdownFrontmatterFields(raw, { status, updated: currentToday() }),
+    "utf8",
+  );
+  projectRegistryCache = { mtimeMs: -1, projects: [] };
+
+  return {
+    message: status === "retired" ? `${entry.name} retired.` : `${entry.name} restored to ${status}.`,
+    ok: true,
+    project: listProjectRegistry({ includeAll: true }).find((project) => project.id === entry.id),
+    state: "updated",
+    statusCode: 200,
+  };
 }
 
 // Appends `line` at the end of a `## <heading>` section (before the next heading, or EOF
@@ -3489,7 +4350,7 @@ function applyProjectAttachCaptureAction(action, capture, text) {
   const filePath = path.join(ROOT, ...match.path.split("/"));
   const raw = fs.readFileSync(filePath, "utf8");
   const preview = String(payload.body || text).trim().replace(/\s+/g, " ").slice(0, 140);
-  const line = `- ${TODAY}: ${preview} ([[${capture.capture.replace(/\.md$/, "")}]])`;
+  const line = `- ${currentToday()}: ${preview} ([[${capture.capture.replace(/\.md$/, "")}]])`;
   fs.writeFileSync(filePath, appendLineToMarkdownSection(raw, "Captures", line), "utf8");
 
   return { line, project: match.name, relPath: match.path };
@@ -3528,6 +4389,7 @@ function fillZoteroTemplate(template, fields) {
   setIfPresent("abstractNote", fields.body);
   setIfPresent("url", fields.url);
   setIfPresent("DOI", fields.doi);
+  setIfPresent("date", fields.date);
   setIfPresent("publicationTitle", fields.publicationTitle);
   setIfPresent("websiteTitle", fields.publicationTitle);
   setIfPresent("accessDate", fields.url ? "CURRENT_TIMESTAMP" : "");
@@ -3537,9 +4399,9 @@ function fillZoteroTemplate(template, fields) {
     if (creators.length) item.creators = creators;
   }
 
-  if (Array.isArray(item.tags)) {
-    item.tags = [{ tag: "horizon-capture" }];
-  }
+  // Keep Zotero taxonomy human-owned. Horizon uses collections as broad subjects and
+  // does not add arbitrary machine tags to every captured item.
+  if (Array.isArray(item.tags)) item.tags = [];
 
   if (Object.prototype.hasOwnProperty.call(item, "extra")) {
     item.extra = [
@@ -3566,7 +4428,9 @@ async function applyZoteroCaptureAction(action, capture, text) {
   const title = String(payload.title || action.label || capture.title || "Horizon Capture").trim();
   const source = String(payload.source || "").trim();
   const url = String(payload.url || source || firstUrlFromText(text)).trim();
-  const doi = String(payload.doi || firstDoiFromText(text)).trim();
+  const doi = normalizeDoi(payload.doi || firstDoiFromText(text));
+  const metadata = await metadataForDoi(doi, { allowFetch: true });
+  const capturedBody = String(payload.body || "").trim();
   const itemType = zoteroItemTypeFromAction(action, text);
   const templateResponse = await fetch(`https://api.zotero.org/items/new?itemType=${encodeURIComponent(itemType)}`, {
     headers: { "Zotero-API-Version": "3" },
@@ -3577,13 +4441,14 @@ async function applyZoteroCaptureAction(action, capture, text) {
   }
 
   const zoteroItem = fillZoteroTemplate(template, {
-    authors: payload.authors,
-    body: payload.body || action.reason || text,
+    authors: payload.authors || metadata?.authors?.join("; "),
+    body: metadata?.abstract || (capturedBody && capturedBody !== text.trim() ? capturedBody : "") || action.reason || text,
+    date: payload.date || metadata?.datePublished,
     doi,
     extra: `Created from Horizon Capture.\nSource capture: ${capture.capture}`,
-    publicationTitle: payload.publication_title,
+    publicationTitle: payload.publication_title || metadata?.publicationTitle,
     source,
-    title,
+    title: researchTitleIsPlaceholder(title, doi) ? metadata?.title || title : title,
     url,
   });
 
@@ -3611,40 +4476,12 @@ async function applyZoteroCaptureAction(action, capture, text) {
   }
 
   const zoteroUrl = `https://www.zotero.org/users/${encodeURIComponent(zoteroUserId)}/items/${encodeURIComponent(itemKey)}`;
-  const relPath = writeInboxNote(
-    title,
-    [
-      {
-        heading: "## Zotero Item",
-        lines: [
-          `- Item key: ${itemKey}`,
-          `- Zotero URL: ${zoteroUrl}`,
-          `- Item type: ${itemType}`,
-          doi ? `- DOI: ${doi}` : "",
-          url ? `- URL: ${url}` : "",
-          `- Source capture: [[${capture.capture.replace(/\.md$/, "")}]]`,
-        ].filter(Boolean),
-      },
-      {
-        heading: "## Capture Context",
-        lines: [String(payload.body || text).trim()],
-      },
-      {
-        heading: "## Triage",
-        lines: [
-          `- Action type: ${action.type}`,
-          `- Confidence: ${action.confidence}`,
-          `- Reason: ${action.reason || "No reason provided."}`,
-        ],
-      },
-    ],
-    "zotero",
-  );
+  try { fs.unlinkSync(RESEARCH_LIBRARY_CACHE_PATH); } catch { /* no cache yet */ }
 
   return {
     itemKey,
     itemType,
-    relPath,
+    relPath: "",
     zoteroUrl,
   };
 }
@@ -3863,6 +4700,10 @@ function undoCaptureAction(payload) {
 }
 
 function writeCaptureInboxNote(action, capture, text, title) {
+  const connectionLines = normalizeConnectionInput(action.payload?.connections)
+    .split("\n")
+    .filter(Boolean)
+    .map((target) => `- [[${target}]]`);
   return writeInboxNote(
     title,
     [
@@ -3874,6 +4715,9 @@ function writeCaptureInboxNote(action, capture, text, title) {
         heading: "## Cleaned Capture",
         lines: [String(action.payload?.body || text).trim()],
       },
+      ...(connectionLines.length
+        ? [{ heading: "## Connections", lines: connectionLines }]
+        : []),
       {
         heading: "## Triage",
         lines: [
@@ -3892,7 +4736,7 @@ async function applyCaptureAction(payload) {
   const text = String(payload.text || "").trim();
   if (!text) return { ok: false, message: "Capture text is required.", state: "missing_text" };
 
-  const action = normalizeCaptureAction(payload.action);
+  const action = normalizeCaptureAction(payload.action, text);
   // Dispatch metadata comes from the registry; executor implementations live below.
   const definition = captureActionById(action.type);
   const queue = definition.queueLike;
@@ -3934,7 +4778,7 @@ async function applyCaptureAction(payload) {
       };
     }
     outputs.push({ label: "Zotero item created", path: zoteroResult.zoteroUrl });
-    outputs.push({ label: "Local Zotero note created", path: zoteroResult.relPath });
+    if (zoteroResult.relPath) outputs.push({ label: "Local Zotero note created", path: zoteroResult.relPath });
     message = `Zotero item created (${zoteroResult.itemKey}).`;
   } else if (definition.executor === "behavior_rule") {
     const relPath = appendBehaviorRule(title, [
@@ -3945,7 +4789,7 @@ async function applyCaptureAction(payload) {
     outputs.push({ label: "Behavior rule saved", path: relPath });
     message = "Behavior rule saved locally.";
   } else if (definition.executor === "research_paper") {
-    const researchResult = applyResearchPaperCaptureAction(action, capture, text);
+    const researchResult = await applyResearchPaperCaptureAction(action, capture, text);
     outputs.push({ label: "Research note saved", path: researchResult.relPath });
     message = `Research note saved (${researchResult.citekey}).`;
   } else if (definition.executor === "research_idea") {
@@ -4022,6 +4866,28 @@ async function applyCaptureAction(payload) {
 function sendJson(res, status, data) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
+}
+
+function sendDevelopmentSandbox(res) {
+  const headers = {
+    "cache-control": "no-store, max-age=0",
+    "content-type": "text/html; charset=utf-8",
+    "x-horizon-local-only": "true",
+    "x-robots-tag": "noindex, nofollow",
+  };
+
+  if (fs.existsSync(DEVELOPMENT_SANDBOX_INDEX_PATH)) {
+    res.writeHead(200, headers);
+    fs.createReadStream(DEVELOPMENT_SANDBOX_INDEX_PATH).pipe(res);
+    return;
+  }
+
+  res.writeHead(200, headers);
+  res.end(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Constellation</title><style>
+html,body{height:100%;margin:0}body{display:grid;place-items:center;background:#030812;color:#dbeafe;font:14px Inter,Segoe UI,sans-serif}
+main{max-width:520px;padding:28px;text-align:center}p{color:#7f8da3;line-height:1.6}
+</style></head><body><main><h1>Constellation</h1><p>No local experiment is installed on this machine yet. Local experiments belong in <code>00_System/local/Horizon/Development Sandbox/</code>, which Git ignores.</p></main></body></html>`);
 }
 
 function escapeHtml(value) {
@@ -4668,6 +5534,10 @@ async function handle(req, res) {
       });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/development-sandbox") {
+      sendDevelopmentSandbox(res);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/integrations") {
       sendJson(res, 200, { connections: allIntegrationConnections() });
       return;
@@ -4795,7 +5665,8 @@ async function handle(req, res) {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/items") {
-      sendJson(res, 200, { today: TODAY, items: listItems() });
+      const today = currentToday();
+      sendJson(res, 200, { today, items: listItems(today) });
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/update/check") {
@@ -4855,7 +5726,28 @@ async function handle(req, res) {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/research/papers") {
-      sendJson(res, 200, { papers: listResearchPapers() });
+      const library = await listResearchLibrary({
+        enrich: url.searchParams.get("enrich") === "1",
+        force: url.searchParams.get("force") === "1",
+      });
+      sendJson(res, 200, library);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/research/papers/state") {
+      const payload = await readBody(req);
+      const result = await updateResearchPaperState(payload);
+      sendJson(res, result.statusCode, result);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/research/papers/sync") {
+      const result = await syncResearchLibrary();
+      sendJson(res, 200, result);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/research/copy") {
+      const payload = await readBody(req);
+      const copied = copyResearchTextToClipboard(payload.text);
+      sendJson(res, copied ? 200 : 409, { copied, ok: copied });
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/research/ideas") {
@@ -4864,6 +5756,12 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/api/projects") {
       sendJson(res, 200, { projects: listProjectRegistry({ includeAll: url.searchParams.get("all") === "1" }) });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/projects/status") {
+      const payload = await readBody(req);
+      const result = updateProjectRegistryStatus(payload.id, String(payload.status || "").trim().toLowerCase());
+      sendJson(res, result.statusCode, result);
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/projects/open") {
@@ -4933,7 +5831,7 @@ async function handle(req, res) {
 }
 
 function selfCheck() {
-  const sample = "---\ndate: unknown\ntime_start:\ntime_end:\nimportance: high\ncategory: University\nname: \"Demo\"\naction_needed: \"Confirm the exact course due time.\"\nstatus: active\n---\n\n# Demo\n";
+  const sample = "---\ndate: unknown\ntime_start:\ntime_end:\nimportance: high\ncategory: UCSD\nname: \"Demo\"\naction_needed: \"Confirm the exact Canvas due time.\"\nstatus: active\n---\n\n# Demo\n";
   const parsed = parseItemContent(sample);
   assert.strictEqual(parsed.fields.name, "Demo");
   assert.strictEqual(parsed.fields.time_start, "");
@@ -4941,6 +5839,26 @@ function selfCheck() {
   assert.strictEqual(issueList(parsed.fields, `${parsed.body}\n- Open reminder: yes\n`).some((issue) => issue.key === "date"), false);
   const rebuilt = buildItemContent(parsed.fields, parsed.body);
   assert.strictEqual(parseItemContent(rebuilt).fields.action_needed, "Confirm the exact Canvas due time.");
+  const paperParts = researchPaperParts("---\ntype: research-paper\n---\n\nCitation.\n\n## Summary\n\nUseful context.\n\n## Connections\n\n- [[Topic]]\n");
+  assert.strictEqual(paperParts.abstractLabel, "Summary");
+  assert.strictEqual(paperParts.abstract, "Useful context.");
+  assert.strictEqual(normalizeDoi("https://doi.org/10.1037/H0040957"), "10.1037/h0040957");
+  assert.strictEqual(normalizeDoi("file:///C:/papers/10.1000/not-a-doi.pdf"), "");
+  assert.strictEqual(researchTitleIsPlaceholder("10.1111/joms.13246", "10.1111/joms.13246"), true);
+  assert.strictEqual(researchTitleIsPlaceholder("A useful paper title", "10.1111/joms.13246"), false);
+  const identity = citationResearchIdentity("Smith, J. (2024). A useful paper title. _Journal of Examples, 2_(1), 1-4.", "Smith-2024");
+  assert.strictEqual(identity.title, "A useful paper title");
+  const apa = crossrefApaCitation({
+    author: [{ family: "Smith", given: "Jamie L" }, { family: "Jones", given: "Avery" }],
+    issue: "2",
+    page: "10-19",
+    "published-print": { "date-parts": [[2026, 3]] },
+    title: ["A useful paper title"],
+    volume: "63",
+    "container-title": ["Journal of Examples"],
+  }, "10.1000/example");
+  assert.ok(apa.includes("Smith, J. L., & Jones, A. (2026)."));
+  assert.ok(apa.includes("Journal of Examples, 63(2), 10–19."));
   console.log("Dashboard self-check passed.");
 }
 
@@ -4948,6 +5866,6 @@ if (process.argv.includes("--check")) {
   selfCheck();
 } else {
   http.createServer(handle).listen(PORT, HOST, () => {
-    console.log(`Horizon dashboard running at http://${HOST}:${PORT}`);
+    console.log(`Horizon OS running at http://${HOST}:${PORT}`);
   });
 }

@@ -19,6 +19,8 @@ The installer creates a local vault at `%USERPROFILE%\HorizonOS` by default. See
 
 ### macOS
 
+The current Mac preview remains **v0.2.0** while the newer Windows package is being validated. If the latest release does not include a DMG, use the [v0.2.0 Mac release](https://github.com/BoomerRawlings/horizon-os/releases/tag/v0.2.0).
+
 1. Download the DMG that matches your Mac:
    - `arm64` for Apple Silicon (M-series)
    - `x64` for Intel

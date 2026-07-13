@@ -1,14 +1,15 @@
-import { useState } from "react";
-import { BookOpen, CalendarDays, FlaskConical, Folder, FolderKanban, Home, Settings, Target } from "lucide-react";
+import { useState, type ComponentType } from "react";
+import { BookOpen, CalendarDays, FlaskConical, Folder, FolderKanban, Home, PenLine, Settings } from "lucide-react";
 import { dockItems } from "../../data/dockItems";
 import { isBrowsableSource, LAUNCH_ONLY_HINT } from "../../data/integrationCapability";
 import type { FileBrowserSourceId, HorizonView, IntegrationConnection, ProfileSettings, SettingsOpenTarget } from "../../types";
 import { playLogoPokeSound, type FocusAudioHandle } from "../../utils/focusFeedback";
 import { BrandMark } from "../ui/BrandMark";
 import { HorizonMark } from "../ui/HorizonMark";
+import { ConstellationIcon, FocusIcon } from "../ui/HorizonIcons";
 
 type SidebarNavItem = {
-  icon?: typeof Home;
+  icon?: ComponentType<{ className?: string; strokeWidth?: number }>;
   id: string;
   label: string;
   sourceId?: FileBrowserSourceId;
@@ -19,10 +20,12 @@ const primaryNavItems: SidebarNavItem[] = [
   { id: "home", label: "Home", icon: Home, view: "home" },
   { id: "calendar", label: "Calendar", icon: CalendarDays, view: "calendar" },
   { id: "project-management", label: "Projects", icon: FolderKanban, view: "projects" },
-  { id: "focus", label: "Focus", icon: Target, view: "focus" },
-  { id: "research", label: "Research", sourceId: "research", view: "files" },
-  { id: "sandbox", label: "Sandbox", icon: FlaskConical, view: "sandbox" },
+  { id: "constellation", label: "Constellation", icon: ConstellationIcon, view: "development-sandbox" },
+  { id: "focus", label: "Focus", icon: FocusIcon, view: "focus" },
+  { id: "research", label: "Research", icon: BookOpen, view: "research" },
+  { id: "workbench", label: "Workbench", icon: PenLine, view: "workbench" },
   { id: "files", label: "Files", icon: Folder, sourceId: "local", view: "files" },
+  { id: "sandbox", label: "Sandbox", icon: FlaskConical, view: "sandbox" },
 ];
 
 const integrationNavItems: SidebarNavItem[] = [
@@ -61,13 +64,12 @@ function sourceStatus(sourceId: FileBrowserSourceId, integrations: IntegrationCo
 }
 
 function SourceMark({ sourceId }: { sourceId: FileBrowserSourceId }) {
-  if (sourceId === "research") return <BookOpen className="h-5 w-5 text-amber-200" strokeWidth={1.8} />;
   const dockItem = dockItems.find((item) => item.id === sourceId);
   if (dockItem) {
     return <BrandMark brand={dockItem.brand} className="h-5 w-5" iconSrc={dockItem.iconSrc} label={dockItem.label} />;
   }
   if (sourceId === "local") return <Folder className="h-5 w-5" strokeWidth={1.8} />;
-  return <BookOpen className="h-5 w-5 text-amber-200" strokeWidth={1.8} />;
+  return <BookOpen className="h-5 w-5" strokeWidth={1.8} />;
 }
 
 export function Sidebar({

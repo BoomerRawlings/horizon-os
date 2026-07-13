@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, RotateCcw, Settings2, Zap } from "lucide-react";
+import { Pause, Play, RotateCcw, Settings2 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { FOCUS_PRESETS, formatTime, type FocusTimerController } from "../../hooks/useFocusTimer";
 import { getFocusPhaseTheme } from "../../data/focusTheme";
+import { FocusIcon } from "../ui/HorizonIcons";
 
 type FocusPanelProps = {
   focusTimer: FocusTimerController;
@@ -79,7 +80,7 @@ export function FocusPanel({ focusTimer, onOpenFocusWorkspace }: FocusPanelProps
           title="Open Focus workspace"
           type="button"
         >
-          <Zap className="h-5 w-5 text-slate-300" />
+          <FocusIcon className="h-5 w-5 text-slate-300" />
           <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-white">Focus</h2>
         </button>
         <button

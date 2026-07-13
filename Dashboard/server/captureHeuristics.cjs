@@ -176,6 +176,21 @@ function titleFromRemainder(text, fragments) {
     .slice(0, 80);
 }
 
+const COURSEWORK_DEADLINE_CONTEXT = /\b(homework|assignment|canvas|coursework|quiz|exam|module|discussion(?:\s+post)?|lab|problem\s+set)\b/i;
+
+function applyCourseworkDeadlineDefault(action, sourceText = "") {
+  if (!action || action.type !== "create_calendar_item") return action;
+  const payload = { ...(action.payload || {}) };
+  const context = [sourceText, payload.title, payload.body, payload.action_needed, payload.category].filter(Boolean).join(" ");
+  const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(String(payload.date || ""));
+  if (!hasDate || payload.time_start || !COURSEWORK_DEADLINE_CONTEXT.test(context)) return action;
+  return {
+    ...action,
+    reason: `${String(action.reason || "Detected a coursework deadline.").replace(/\s+$/, "")} No time was specified, so Horizon used the safe coursework default of 23:58.`,
+    payload: { ...payload, time_start: "23:58" },
+  };
+}
+
 function calendarAction(text, todayIso) {
   const date = parseDate(text, todayIso);
   if (!date) return null;
@@ -184,7 +199,7 @@ function calendarAction(text, todayIso) {
   // HIGH only for an ABSOLUTE date with a title (safe to batch-apply). Relative dates
   // (today/tomorrow/weekday) stay medium so a stale capture never auto-applies a wrong day.
   const highEligible = date.explicit && Boolean(title);
-  return {
+  return applyCourseworkDeadlineDefault({
     type: "create_calendar_item",
     label: title ? `Calendar: ${title}`.slice(0, 48) : "Calendar event",
     confidence: highEligible ? "high" : "medium",
@@ -195,7 +210,7 @@ function calendarAction(text, todayIso) {
       time_start: time ? time.time : "",
       action_needed: title || "",
     },
-  };
+  }, text);
 }
 
 const PAPER_CONTEXT = /\b(paper|study|studies|article|journal|preprint|research|arxiv|abstract|citation|cite|doi)\b/i;
@@ -226,6 +241,43 @@ function researchAction(text, hasAction) {
     confidence: "medium",
     reason: "Detected a link; saving it as a note keeps it without guessing it's a paper.",
     payload: { title, url: url || "", source: url || (doi ? `https://doi.org/${doi}` : ""), body: text.trim() },
+  };
+}
+
+const RESEARCH_IDEA_CONTEXT = /\b(rough\s+research\s+note|research\s+(?:idea|question|note)|look\s+into|investigate|study\s+whether)\b/i;
+
+function researchIdeaAction(text, hasAction) {
+  if (!hasAction("save_research_idea") || !RESEARCH_IDEA_CONTEXT.test(text)) return null;
+  if (/https?:\/\//i.test(text) || /\b10\.\d{4,9}\//i.test(text)) return null;
+  const title = titleFromRemainder(text, [(text.match(RESEARCH_IDEA_CONTEXT) || [])[0]])
+    .replace(/\[\[[^\]]+\]\]/g, " ")
+    .replace(/\bconnected\s+to\b\s*:?/i, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return {
+    type: "save_research_idea",
+    label: "Save research idea",
+    confidence: "medium",
+    reason: "Detected an explicit research note or open question without a paper citation.",
+    payload: {
+      title: title || "Research note",
+      body: text.trim(),
+    },
+  };
+}
+
+const GENERAL_NOTE_LEAD = /^\s*(?:rough\s+)?(?:note|thought|idea)\s*[:\-]/i;
+
+function generalNoteAction(text, hasAction) {
+  const lead = text.match(GENERAL_NOTE_LEAD);
+  if (!lead || !hasAction("save_note")) return null;
+  const title = titleFromRemainder(text, [lead[0]]);
+  return {
+    type: "save_note",
+    label: "Save cleaned note",
+    confidence: "medium",
+    reason: "Detected an explicit rough note for the Workbench.",
+    payload: { title: title || "Workbench note", body: text.trim(), destination: "Inbox" },
   };
 }
 
@@ -305,6 +357,12 @@ function heuristicActions(text, options = {}) {
   if (calendar) fired.push(calendar);
   const research = researchAction(clean, hasAction);
   if (research) fired.push(research);
+  if (!research) {
+    const researchIdea = researchIdeaAction(clean, hasAction);
+    if (researchIdea) fired.push(researchIdea);
+  }
+  const generalNote = generalNoteAction(clean, hasAction);
+  if (generalNote) fired.push(generalNote);
   // A reminder is only meaningful when no concrete date was already detected (a dated
   // "remind me ... tomorrow" is already covered by the calendar action above).
   if (!calendar) {
@@ -327,4 +385,4 @@ function heuristicActions(text, options = {}) {
   return [...byType.values()].sort((a, b) => CONFIDENCE_RANK[b.confidence] - CONFIDENCE_RANK[a.confidence]);
 }
 
-module.exports = { heuristicActions };
+module.exports = { applyCourseworkDeadlineDefault, heuristicActions };

@@ -6,6 +6,8 @@
 import type { Project, ProjectStatus } from "../types";
 import { normalizeVaultText } from "../utils/markdownText";
 
+export const PROJECT_REGISTRY_UPDATED_MESSAGE = "horizon:project-registry-updated";
+
 export type VaultProjectRecord = {
   id: string;
   name: string;

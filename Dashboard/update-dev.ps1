@@ -147,9 +147,9 @@ try {
   Write-UpdateLog "Installing dependencies."
   Push-Location $dashboard
   try {
-    & npm install --no-audit --no-fund | Out-Null
+    & npm ci --no-audit --no-fund | Out-Null
     if ($LASTEXITCODE -ne 0) {
-      throw "npm install failed."
+      throw "npm ci failed."
     }
 
     Write-UpdateLog "Building Horizon OS."

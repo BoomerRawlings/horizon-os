@@ -11,10 +11,12 @@ import { CaptureWorkspace } from "./components/panels/CaptureWorkspace";
 import { CaptureSweep, type PileItem } from "./components/panels/CaptureSweep";
 import { ProjectsWorkspace } from "./components/panels/ProjectsWorkspace";
 import { SandboxWorkspace } from "./components/panels/SandboxWorkspace";
+import { DevelopmentSandboxWorkspace } from "./components/panels/DevelopmentSandboxWorkspace";
 import { ExpandedCalendar } from "./components/panels/ExpandedCalendar";
 import { FileBrowserPanel } from "./components/panels/FileBrowserPanel";
 import { FocusPanel } from "./components/panels/FocusPanel";
 import { FocusWorkspace } from "./components/panels/FocusWorkspace";
+import { ResearchWorkspace } from "./components/panels/ResearchWorkspace";
 import { ProfileCustomizer } from "./components/panels/ProfileCustomizer";
 import { ProjectSpotlight, ProjectSpotlightExpandedWorkspace } from "./components/panels/ProjectSpotlight";
 import { SettingsPanel } from "./components/panels/SettingsPanel";
@@ -37,7 +39,17 @@ import {
 import { currentHorizonVaultState, loadHorizonStateFromVault, saveHorizonStateToVault } from "./utils/horizonState";
 import { countUpcomingExactItems, upcomingPriorityItems } from "./utils/rcfCalendar";
 
-type WorkspaceScreen = "home" | "calendar" | "spotlight" | "files" | "focus" | "capture" | "projects" | "sandbox";
+type WorkspaceScreen =
+  | "home"
+  | "calendar"
+  | "spotlight"
+  | "research"
+  | "files"
+  | "focus"
+  | "capture"
+  | "projects"
+  | "sandbox"
+  | "development-sandbox";
 type UpdateCheckSnapshot = {
   branch?: string;
   current?: string;
@@ -59,10 +71,13 @@ function bootRequestedFromUrl() {
 
 function activeViewForWorkspace(screen: WorkspaceScreen): HorizonView {
   if (screen === "calendar") return "calendar";
+  if (screen === "research") return "research";
   if (screen === "files") return "files";
   if (screen === "focus") return "focus";
   if (screen === "projects") return "projects";
   if (screen === "sandbox") return "sandbox";
+  if (screen === "development-sandbox") return "development-sandbox";
+  if (screen === "capture") return "workbench";
   return "home";
 }
 
@@ -108,6 +123,7 @@ export function App() {
   const [exitingWorkspaceScreen, setExitingWorkspaceScreen] = useState<WorkspaceScreen | null>(null);
   const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "switching">("idle");
   const [focusNavigationPreference, setFocusNavigationPreference] = useState<"auto" | "collapsed" | "visible">("auto");
+  const [developmentSandboxCanvasMode, setDevelopmentSandboxCanvasMode] = useState(false);
   const [captureText, setCaptureText] = useState("");
   const [captureAutoRunKey, setCaptureAutoRunKey] = useState(0);
   const [captureFocusKey, setCaptureFocusKey] = useState(0);
@@ -123,6 +139,8 @@ export function App() {
   const [settingsTarget, setSettingsTarget] = useState<SettingsOpenTarget | undefined>();
   const [firstRunOpen, setFirstRunOpen] = useState(() => !hasCompletedFirstRun());
   const [calendarReviewFocusKey, setCalendarReviewFocusKey] = useState(0);
+  const [calendarPriorityFocusKey, setCalendarPriorityFocusKey] = useState(0);
+  const [calendarEventFocusKey, setCalendarEventFocusKey] = useState(0);
   const [profileStatus, setProfileStatus] = useState<"Synced" | "Saving..." | "Offline changes" | "Needs attention">("Synced");
   const [stageHeight, setStageHeight] = useState<number | null>(null);
   const [horizonStateReady, setHorizonStateReady] = useState(false);
@@ -136,11 +154,13 @@ export function App() {
   const homeWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const calendarWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const spotlightWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const researchWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const fileWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const focusWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const captureWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const projectsWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const sandboxWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const developmentSandboxWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const captureReturnDraftRef = useRef<string | undefined>(undefined);
   const workspaceTransitionTimerRef = useRef<number | null>(null);
   const stageAnimationFrameRef = useRef<number | null>(null);
@@ -159,7 +179,7 @@ export function App() {
     [calendar.items, calendar.today],
   );
   const calendarIssueCount = useMemo(
-    () => calendar.items.reduce((count, item) => count + item.issues.length, 0),
+    () => calendar.items.filter((item) => item.issues.length > 0).length,
     [calendar.items],
   );
   // PHASE-10: live count of captures waiting to triage (the pile the sweep opens). Refetched
@@ -174,6 +194,8 @@ export function App() {
     (workspaceScreen === "focus" || exitingWorkspaceScreen === "focus") &&
     (focusNavigationPreference === "collapsed" ||
       (focusNavigationPreference === "auto" && focusTimer.isRunning && focusTimer.mode === "focus"));
+  const navigationCollapsed = focusNavigationCollapsed || developmentSandboxCanvasMode;
+  const immersiveWorkspace = workspaceScreen === "focus" || developmentSandboxCanvasMode;
   const calendarPriorityCount = useMemo(
     () => upcomingPriorityItems(calendar.items, calendar.today, 3).length,
     [calendar.items, calendar.today],
@@ -293,11 +315,13 @@ export function App() {
     animateStageTo(() => {
       if (nextScreen === "calendar") return measuredHeight(calendarWorkspaceRef.current);
       if (nextScreen === "spotlight") return measuredHeight(spotlightWorkspaceRef.current);
+      if (nextScreen === "research") return measuredHeight(researchWorkspaceRef.current);
       if (nextScreen === "files") return measuredHeight(fileWorkspaceRef.current);
       if (nextScreen === "focus") return measuredHeight(focusWorkspaceRef.current);
       if (nextScreen === "capture") return measuredHeight(captureWorkspaceRef.current);
       if (nextScreen === "projects") return measuredHeight(projectsWorkspaceRef.current);
       if (nextScreen === "sandbox") return measuredHeight(sandboxWorkspaceRef.current);
+      if (nextScreen === "development-sandbox") return measuredHeight(developmentSandboxWorkspaceRef.current);
       return measuredHeight(homeWorkspaceRef.current);
     });
 
@@ -307,6 +331,9 @@ export function App() {
       setStageHeight(null);
       if (nextScreen !== "focus") {
         setFocusNavigationPreference("auto");
+      }
+      if (nextScreen !== "development-sandbox") {
+        setDevelopmentSandboxCanvasMode(false);
       }
       workspaceTransitionTimerRef.current = null;
     }, MOTION_TIMING.workspaceMs);
@@ -327,6 +354,7 @@ export function App() {
   }
 
   function openCalendar() {
+    setCalendarEventFocusKey((current) => current + 1);
     showWorkspace("calendar");
   }
 
@@ -334,6 +362,11 @@ export function App() {
   // counter). A changing key re-triggers the focus even if the calendar is already open.
   function openCalendarReview() {
     setCalendarReviewFocusKey((current) => current + 1);
+    showWorkspace("calendar");
+  }
+
+  function openCalendarPriorities() {
+    setCalendarPriorityFocusKey((current) => current + 1);
     showWorkspace("calendar");
   }
 
@@ -358,6 +391,15 @@ export function App() {
     if (autoRun && captureText.trim()) {
       window.setTimeout(() => setCaptureAutoRunKey((current) => current + 1), 80);
     }
+  }
+
+  function openResearchWorkbench(prefill: string) {
+    captureReturnDraftRef.current = captureText;
+    setCaptureText(prefill);
+    setCaptureMode("single");
+    setQueuedCaptureSource(null);
+    setCaptureFocusKey((current) => current + 1);
+    showWorkspace("capture");
   }
 
   function openNewProjectCapture() {
@@ -460,12 +502,22 @@ export function App() {
 
   function navigate(view: HorizonView, sourceId?: FileBrowserSourceId) {
     if (view === "calendar") {
-      showWorkspace("calendar");
+      openCalendar();
       return;
     }
 
     if (view === "focus") {
       showWorkspace("focus");
+      return;
+    }
+
+    if (view === "research") {
+      showWorkspace("research");
+      return;
+    }
+
+    if (view === "workbench") {
+      openCapture();
       return;
     }
 
@@ -491,6 +543,11 @@ export function App() {
 
     if (view === "sandbox") {
       showWorkspace("sandbox");
+      return;
+    }
+
+    if (view === "development-sandbox") {
+      showWorkspace("development-sandbox");
     }
   }
 
@@ -609,7 +666,15 @@ export function App() {
         closeSpotlight();
       } else if (workspaceScreen === "focus") {
         showWorkspace("home");
-      } else if (workspaceScreen === "files" || workspaceScreen === "projects" || workspaceScreen === "sandbox") {
+      } else if (workspaceScreen === "development-sandbox" && developmentSandboxCanvasMode) {
+        setDevelopmentSandboxCanvasMode(false);
+      } else if (
+        workspaceScreen === "files" ||
+        workspaceScreen === "research" ||
+        workspaceScreen === "projects" ||
+        workspaceScreen === "sandbox" ||
+        workspaceScreen === "development-sandbox"
+      ) {
         resetWorkspaceToHome();
       } else if (workspaceScreen === "capture") {
         closeCapture();
@@ -618,7 +683,7 @@ export function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [workspaceScreen]);
+  }, [developmentSandboxCanvasMode, workspaceScreen]);
 
   useEffect(() => {
     window.history.scrollRestoration = "manual";
@@ -634,11 +699,13 @@ export function App() {
     const warmups = [
       () => warmWorkspaceLayer(calendarWorkspaceRef.current),
       () => warmWorkspaceLayer(spotlightWorkspaceRef.current),
+      () => warmWorkspaceLayer(researchWorkspaceRef.current),
       () => warmWorkspaceLayer(fileWorkspaceRef.current),
       () => warmWorkspaceLayer(focusWorkspaceRef.current),
       () => warmWorkspaceLayer(captureWorkspaceRef.current),
       () => warmWorkspaceLayer(projectsWorkspaceRef.current),
       () => warmWorkspaceLayer(sandboxWorkspaceRef.current),
+      () => warmWorkspaceLayer(developmentSandboxWorkspaceRef.current),
     ];
     const timers: number[] = [];
 
@@ -654,11 +721,13 @@ export function App() {
       timers.forEach((timer) => window.clearTimeout(timer));
       calendarWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       spotlightWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
+      researchWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       fileWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       focusWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       captureWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       projectsWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
       sandboxWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
+      developmentSandboxWorkspaceRef.current?.classList.remove("motion-layer-prewarming");
     };
   }, []);
 
@@ -849,7 +918,7 @@ export function App() {
         activeView={activeView}
         audioHandle={focusAudioRef}
         integrations={integrations}
-        focusNavigationCollapsed={focusNavigationCollapsed}
+        focusNavigationCollapsed={navigationCollapsed}
         onNavigate={navigate}
         onOpenProfile={() => setProfileCustomizerOpen(true)}
         onOpenSettings={openSettings}
@@ -860,7 +929,7 @@ export function App() {
 
       <main
         className={`horizon-main-shell relative z-10 h-screen overflow-hidden ${
-          focusNavigationCollapsed ? "horizon-main-shell-focus-expanded" : "ml-64"
+          navigationCollapsed ? "horizon-main-shell-focus-expanded" : "ml-64"
         }`}
         ref={mainShellRef}
       >
@@ -869,17 +938,19 @@ export function App() {
             their scrolling inside the relevant panel. */}
         <section
           className={`app-home-shell flex h-screen flex-col overflow-y-auto overflow-x-hidden px-10 py-6 ${
-            workspaceScreen === "focus" ? "focus-mode-shell" : ""
+            immersiveWorkspace ? "focus-mode-shell" : ""
           }`}
           ref={homeShellRef}
         >
-          <div className={`workspace-chrome ${workspaceScreen === "focus" ? "workspace-chrome-collapsed" : ""}`}>
+          <div className={`workspace-chrome ${immersiveWorkspace ? "workspace-chrome-collapsed" : ""}`}>
             <Header focusTimer={focusTimer} profile={profile} />
             <StatusRow
               eventCount={calendarEventCount}
               focusLabel={focusStatusLabel}
               issueCount={calendarIssueCount}
               onOpenCalendar={openCalendar}
+              onOpenFocus={() => showWorkspace("focus")}
+              onOpenPriorities={openCalendarPriorities}
               onOpenReview={openCalendarReview}
               onOpenSweep={openSweep}
               priorityCount={calendarPriorityCount}
@@ -888,7 +959,7 @@ export function App() {
           </div>
 
           <section
-            className={`motion-stage ${workspaceScreen === "focus" ? "focus-mode-stage" : "mt-4"} ${
+            className={`motion-stage ${immersiveWorkspace ? "focus-mode-stage" : "mt-4"} ${
               workspaceTransition === "switching" ? "motion-stage-switching" : ""
             }`}
             data-active-workspace={workspaceScreen}
@@ -938,10 +1009,12 @@ export function App() {
                 <ExpandedCalendar
                   calendarItems={calendar.items}
                   error={calendar.error}
+                  eventFocusKey={calendarEventFocusKey}
                   loading={calendar.loading}
                   onClose={closeCalendar}
                   onRefresh={calendar.refresh}
                   reviewFocusKey={calendarReviewFocusKey}
+                  priorityFocusKey={calendarPriorityFocusKey}
                   showCompletedItems={appSettings.calendar.showCompletedItems}
                   today={calendar.today}
                   weekStartsMonday={appSettings.calendar.weekStartsMonday}
@@ -959,6 +1032,14 @@ export function App() {
                 ref={spotlightWorkspaceRef}
               >
                 <ProjectSpotlightExpandedWorkspace calendarItems={calendar.items} focusTimer={focusTimer} onClose={closeSpotlight} today={calendar.today} />
+              </div>
+
+              <div
+                aria-hidden={workspaceLayerState("research") === "hidden"}
+                className={`motion-layer motion-layer-${workspaceLayerState("research")} research-workspace`}
+                ref={researchWorkspaceRef}
+              >
+                <ResearchWorkspace onClose={() => showWorkspace("home")} onOpenWorkbench={openResearchWorkbench} />
               </div>
 
               <div
@@ -1022,6 +1103,20 @@ export function App() {
                 ref={sandboxWorkspaceRef}
               >
                 <SandboxWorkspace onClose={() => showWorkspace("home")} />
+              </div>
+
+              <div
+                aria-hidden={workspaceLayerState("development-sandbox") === "hidden"}
+                className={`motion-layer motion-layer-${workspaceLayerState("development-sandbox")} development-sandbox-workspace ${
+                  developmentSandboxCanvasMode ? "development-sandbox-workspace-expanded" : ""
+                }`}
+                ref={developmentSandboxWorkspaceRef}
+              >
+                <DevelopmentSandboxWorkspace
+                  canvasMode={developmentSandboxCanvasMode}
+                  onClose={() => showWorkspace("home")}
+                  onToggleCanvasMode={() => setDevelopmentSandboxCanvasMode((current) => !current)}
+                />
               </div>
           </section>
 

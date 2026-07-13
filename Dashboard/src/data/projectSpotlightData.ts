@@ -278,6 +278,11 @@ function dueDistanceLabel(daysUntil: number, dateLabel: string) {
   return `due ${dateLabel}`;
 }
 
+function calendarSpotlightReason(item: RcfCalendarItem, daysUntil: number) {
+  const itemName = item.fields.name.replace(/\s+due$/i, "").trim();
+  return `Spotlighted because: ${dueDistanceLabel(daysUntil, item.dateLabel)} — ${itemName}`;
+}
+
 function importanceBonus(item: RcfCalendarItem) {
   const importance = (item.fields.importance || "").toLowerCase();
   if (importance === "high") return 15;
@@ -367,7 +372,7 @@ function strongestCalendarSignal(project: Project, context: SpotlightContext) {
           dueAt: item.fields.date,
           actionType: project.defaultAction,
         } satisfies SpotlightNextAction,
-        reason: `Spotlighted because: ${item.fields.name} is ${dueDistanceLabel(daysUntil, item.dateLabel)}`,
+        reason: calendarSpotlightReason(item, daysUntil),
         score,
       };
     })

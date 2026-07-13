@@ -39,6 +39,7 @@ import {
   localIsoDate,
   parseIsoDate,
   startOfWeek,
+  upcomingPriorityItems,
   upcomingItems,
 } from "../../utils/rcfCalendar";
 import { markItemDone, openItemFile, snoozeItem } from "../../utils/calendarItemActions";
@@ -83,9 +84,11 @@ type CalendarTooltip = {
 type ExpandedCalendarProps = {
   calendarItems: RcfCalendarItem[];
   error: string | null;
+  eventFocusKey?: number;
   loading: boolean;
   onClose: () => void;
   onRefresh: () => Promise<void>;
+  priorityFocusKey?: number;
   reviewFocusKey?: number;
   showCompletedItems: boolean;
   today: string;
@@ -231,15 +234,18 @@ function eventPatchFromDraft(draft: CalendarDraft) {
 export function ExpandedCalendar({
   calendarItems,
   error,
+  eventFocusKey,
   loading,
   onClose,
   onRefresh,
+  priorityFocusKey,
   reviewFocusKey,
   showCompletedItems,
   today,
   weekStartsMonday,
 }: ExpandedCalendarProps) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>("Week");
+  const [priorityOnly, setPriorityOnly] = useState(false);
   const [reviewOnly, setReviewOnly] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(() => new Set(calendarFilters.map((filter) => filter.key)));
   const [activeCategoryKey, setActiveCategoryKey] = useState<string | null>(null);
@@ -316,7 +322,10 @@ export function ExpandedCalendar({
     [filteredItems, monthEnd, monthStart],
   );
   const agendaItems = upcomingItems(filteredItems, today, 30);
-  const issueCount = calendarItems.reduce((count, item) => count + item.issues.length, 0);
+  // This is the same three-item working set shown on Home and counted in the status row.
+  // Dedicated priority mode intentionally ignores category filters so its count and
+  // destination cannot drift apart.
+  const priorityItems = upcomingPriorityItems(visibleItems, today, 3);
   // Items flagged with issues (e.g. "Past active") — surfaced by the "needs review" view.
   // These are often past-dated, so they never appear in the week/month/agenda views; the
   // review list shows them regardless of date so they can actually be resolved.
@@ -324,6 +333,7 @@ export function ExpandedCalendar({
     () => calendarItems.filter((item) => item.issues.length > 0),
     [calendarItems],
   );
+  const issueCount = reviewItems.length;
   const activeCategory = calendarFilters.find((filter) => filter.key === activeCategoryKey) ?? null;
   const activeCategoryItems = useMemo(
     () => (activeCategoryKey ? visibleItems.filter((item) => categoryKey(item) === activeCategoryKey) : []),
@@ -342,8 +352,29 @@ export function ExpandedCalendar({
   // Activate the "needs review" view when the status-row review counter is clicked.
   // reviewFocusKey starts at 0 (no focus) and increments on each request.
   useEffect(() => {
-    if (reviewFocusKey) setReviewOnly(true);
+    if (!reviewFocusKey) return;
+    setPriorityOnly(false);
+    setReviewOnly(true);
   }, [reviewFocusKey]);
+
+  useEffect(() => {
+    if (!priorityFocusKey) return;
+    setViewMode("Agenda");
+    setReviewOnly(false);
+    setPriorityOnly(true);
+  }, [priorityFocusKey]);
+
+  // "Events" is the calendar's base destination. It must reset focused list modes even
+  // when Calendar is already open, so the status-row control can never look selected while
+  // a priorities/review list remains visible.
+  useEffect(() => {
+    if (!eventFocusKey) return;
+    setViewMode("Month");
+    setReviewOnly(false);
+    setPriorityOnly(false);
+    setUserMovedCalendar(false);
+    setWeekStart(new Date(todayDate.getFullYear(), todayDate.getMonth(), 1));
+  }, [eventFocusKey, todayDate]);
 
   function moveCalendar(direction: -1 | 1) {
     setUserMovedCalendar(true);
@@ -500,7 +531,10 @@ export function ExpandedCalendar({
               className={`ml-5 flex items-center gap-2 rounded-lg px-2 py-1 text-sm transition ${
                 reviewOnly ? "bg-amber-300/12 text-amber-100" : "text-slate-400 hover:bg-white/[0.05] hover:text-amber-100"
               }`}
-              onClick={() => setReviewOnly((current) => !current)}
+              onClick={() => {
+                setPriorityOnly(false);
+                setReviewOnly((current) => !current);
+              }}
               title="Show only the items that need review"
               type="button"
             >
@@ -513,6 +547,21 @@ export function ExpandedCalendar({
               All synced
             </span>
           )}
+          <button
+            className={`ml-1 flex items-center gap-2 rounded-lg px-2 py-1 text-sm transition ${
+              priorityOnly ? "bg-sky-300/12 text-sky-100" : "text-slate-400 hover:bg-white/[0.05] hover:text-sky-100"
+            }`}
+            onClick={() => {
+              setViewMode("Agenda");
+              setReviewOnly(false);
+              setPriorityOnly((current) => !current);
+            }}
+            title="Show upcoming high-priority items"
+            type="button"
+          >
+            <ListChecks className="h-4 w-4 text-sky-300" />
+            {priorityItems.length} priorities
+          </button>
         </div>
         <button
           aria-label="Close calendar"
@@ -668,9 +717,10 @@ export function ExpandedCalendar({
                 {viewModes.map((view) => (
                   <button
                     key={view}
-                    className={`h-9 px-4 ${view === viewMode && !reviewOnly ? "bg-sky-400/12 text-sky-300" : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"}`}
+                    className={`h-9 px-4 ${view === viewMode && !reviewOnly && !priorityOnly ? "bg-sky-400/12 text-sky-300" : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-200"}`}
                     onClick={() => {
                       setViewMode(view);
+                      setPriorityOnly(false);
                       setReviewOnly(false);
                     }}
                     type="button"
@@ -694,7 +744,7 @@ export function ExpandedCalendar({
           ) : null}
 
           {!loading && !error && reviewOnly ? (
-            <div className="max-h-[490px] overflow-y-auto rounded-xl border border-amber-300/20 bg-[#0b1726]/74">
+            <div className="calendar-content-surface max-h-[490px] overflow-y-auto rounded-xl border border-amber-300/20 bg-[#0b1726]/74">
               <div className="border-b border-white/8 px-5 py-3 text-xs font-medium uppercase tracking-[0.14em] text-amber-200">
                 Needs review — open an item to fix its date or mark it done
               </div>
@@ -731,8 +781,39 @@ export function ExpandedCalendar({
             </div>
           ) : null}
 
-          {!loading && !error && !reviewOnly && viewMode === "Week" ? (
-            <div className="calendar-week-grid overflow-hidden rounded-xl border border-white/8 bg-[#081421]/74">
+          {!loading && !error && priorityOnly ? (
+            <div className="calendar-content-surface max-h-[490px] overflow-y-auto rounded-xl border border-sky-300/18 bg-[#081421]/74">
+              <div className="border-b border-white/8 px-5 py-3 text-xs font-medium uppercase tracking-[0.14em] text-sky-200">
+                Upcoming priorities — the high-importance items that need attention first
+              </div>
+              {priorityItems.length === 0 ? (
+                <div className="px-5 py-10 text-center text-sm text-slate-400">No upcoming high-priority items.</div>
+              ) : null}
+              {priorityItems.map((item) => (
+                <button
+                  key={item.id}
+                  className="flex w-full gap-4 border-b border-white/8 px-5 py-4 text-left transition hover:bg-white/[0.035] last:border-b-0"
+                  onClick={() => selectItem(item)}
+                  type="button"
+                  {...itemTooltipProps(item)}
+                >
+                  <div className="w-24 shrink-0 text-sm text-slate-400">{item.dateLabel}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${dotClass[categoryKey(item)]}`} />
+                      <h3 className="truncate text-sm font-medium text-white">{item.fields.name}</h3>
+                      <span className="rounded-full border border-rose-300/22 bg-rose-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-rose-100">High</span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-400">{itemTimeLabel(item)} - {categoryDisplayLabel(item)}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-300">{item.fields.action_needed}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {!loading && !error && !reviewOnly && !priorityOnly && viewMode === "Week" ? (
+            <div className="calendar-content-surface calendar-week-grid overflow-hidden rounded-xl border border-white/8 bg-[#081421]/74">
               <div className="calendar-week-grid-table grid border-b border-white/8" style={{ gridTemplateColumns: weekGridColumns }}>
                 <div />
                 {weekDates.map((date, index) => (
@@ -826,8 +907,8 @@ export function ExpandedCalendar({
             </div>
           ) : null}
 
-          {!loading && !error && !reviewOnly && viewMode === "Month" ? (
-            <div className="calendar-month-grid overflow-hidden rounded-xl border border-white/8 bg-[#081421]/74">
+          {!loading && !error && !reviewOnly && !priorityOnly && viewMode === "Month" ? (
+            <div className="calendar-content-surface calendar-month-grid overflow-hidden rounded-xl border border-white/8 bg-[#081421]/74">
               <div className="calendar-month-grid-table grid grid-cols-7 border-b border-white/8">
                 {dayLabels(weekStartsMonday).map((day) => (
                   <div key={day} className="border-l border-white/8 px-3 py-2 text-center text-[11px] font-semibold text-slate-500 first:border-l-0">
@@ -865,8 +946,8 @@ export function ExpandedCalendar({
             </div>
           ) : null}
 
-          {!loading && !error && !reviewOnly && viewMode === "Agenda" ? (
-            <div className="max-h-[490px] overflow-y-auto rounded-xl border border-white/8 bg-[#081421]/74">
+          {!loading && !error && !reviewOnly && !priorityOnly && viewMode === "Agenda" ? (
+            <div className="calendar-content-surface max-h-[490px] overflow-y-auto rounded-xl border border-white/8 bg-[#081421]/74">
               {agendaItems.length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-400">No upcoming calendar items.</div> : null}
               {agendaItems.map((item) => (
                 <button
