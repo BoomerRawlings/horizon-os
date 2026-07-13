@@ -4,7 +4,7 @@ const path = require("path");
 
 const REQUIRED_VAULT_PATHS = [
   "00_Index.md",
-  "AGENTS.md",
+  "HORIZON.md",
   "Calendar",
   "Inbox",
   "Runs",
@@ -16,7 +16,6 @@ const PORTABLE_WORKSPACE_PATHS = [
 ];
 
 const HORIZON_STRUCTURE_PATHS = [
-  "HORIZON.md",
   path.join("00_System", "manifests", "integrations.manifest.json"),
   path.join("00_System", "manifests", "dashboard.manifest.json"),
   path.join("06_Integrations", "index.md"),

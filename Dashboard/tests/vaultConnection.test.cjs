@@ -29,7 +29,7 @@ try {
   ok("incomplete sync folder is rejected without writing a connection");
 
   fs.writeFileSync(path.join(vault, "00_Index.md"), "# Synced vault\n", "utf8");
-  fs.writeFileSync(path.join(vault, "AGENTS.md"), "# Instructions\n", "utf8");
+  fs.writeFileSync(path.join(vault, "HORIZON.md"), "# Horizon vault\n", "utf8");
   for (const directory of [".obsidian", "Calendar", "Inbox", "Runs", "Project Registry", "Research Papers"]) {
     fs.mkdirSync(path.join(vault, directory), { recursive: true });
   }

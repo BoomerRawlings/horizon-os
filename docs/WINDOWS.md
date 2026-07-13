@@ -24,7 +24,7 @@ If the local vault is already present and fully synced, you can move directly to
 5. On first launch, choose the local vault's top-level folder.
 6. Open **Settings > Integrations** and connect the services you use.
 
-Horizon checks for the Horizon vault structure before saving the connection. The correct folder contains `00_Index.md`, `Calendar`, `Inbox`, and `Runs`.
+Horizon checks for the Horizon vault structure before saving the connection. The correct folder contains `00_Index.md`, `HORIZON.md`, `Calendar`, `Inbox`, and `Runs`.
 
 Horizon reads that folder in place. It does not import, copy, merge, move, or replace the vault.
 

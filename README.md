@@ -31,7 +31,7 @@ If the vault is already on this computer and fully synced, skip to the next sect
 
 That is it. Horizon uses the vault in place. It does not make a second copy, move the vault, or replace any notes.
 
-Horizon expects an existing Horizon vault. The folder picker checks for `00_Index.md`, `Calendar`, `Inbox`, and `Runs`. If it rejects the folder, make sure you selected the top-level vault folder and that Obsidian Sync has finished.
+Horizon expects an existing Horizon vault. The folder picker checks for `00_Index.md`, `HORIZON.md`, `Calendar`, `Inbox`, and `Runs`. If it rejects the folder, make sure you selected the top-level vault folder and that Obsidian Sync has finished.
 
 More detail: [Windows installation](docs/WINDOWS.md)
 
