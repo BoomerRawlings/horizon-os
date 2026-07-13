@@ -10,24 +10,30 @@ Download the newest build from [GitHub Releases](https://github.com/BoomerRawlin
 
 ### Windows 10/11
 
-1. Download `Horizon-Setup-<version>.zip`.
-2. Extract the entire ZIP.
-3. Double-click `Install Horizon.cmd`.
-4. Follow the first-run walkthrough in Horizon.
+1. Install Obsidian, sign in to Obsidian Sync, and let the existing vault finish downloading.
+2. Open the vault once in Obsidian to confirm it is complete.
+3. Download `Horizon-Setup-<version>.zip` and extract the entire ZIP.
+4. Double-click `Install Horizon.cmd`.
+5. On first launch, choose the synced vault's top-level folder.
+6. Connect the integrations you use.
 
-The installer creates a local vault at `%USERPROFILE%\HorizonOS` by default. See [Windows installation](docs/WINDOWS.md) for SmartScreen guidance, custom locations, building from source, and updates.
+Horizon installs app code under `%LOCALAPPDATA%\HorizonOS` and reads the selected vault in place. It does not import, copy, merge, or replace the vault. See [Windows installation](docs/WINDOWS.md) for details.
 
 ### macOS
 
-The current Mac preview remains **v0.2.0** while the newer Windows package is being validated. If the latest release does not include a DMG, use the [v0.2.0 Mac release](https://github.com/BoomerRawlings/horizon-os/releases/tag/v0.2.0).
+The vault-selection layer is cross-platform, but the current downloadable Mac preview predates this handoff flow. Until a new DMG is published, build v0.2.2 on a Mac using the [macOS instructions](docs/MACOS.md).
 
-1. Download the DMG that matches your Mac:
+When a v0.2.2-or-newer DMG is available:
+
+1. Install Obsidian and finish syncing the existing vault.
+2. Download the DMG that matches your Mac:
    - `arm64` for Apple Silicon (M-series)
    - `x64` for Intel
-2. Open the DMG and drag Horizon into Applications.
-3. Because preview builds are not notarized yet, right-click Horizon and choose **Open** the first time.
+3. Open the DMG and drag Horizon into Applications.
+4. Because preview builds are not notarized yet, right-click Horizon and choose **Open** the first time.
+5. Choose the synced vault's top-level folder, then connect integrations.
 
-The macOS build creates its vault in `~/Documents/HorizonOS`. Core capture, calendar, project, file, and focus workflows are available; Windows-specific app launchers and automatic rebuilding are not. See [macOS installation and status](docs/MACOS.md).
+Core capture, calendar, project, file, research, and focus workflows are portable; Windows-specific app launchers and automatic rebuilding are not. See [macOS installation and status](docs/MACOS.md).
 
 ## The basic workflow
 
@@ -41,13 +47,14 @@ The full walkthrough is in [How to use Horizon](docs/USAGE.md) and inside the ap
 
 ## What is local
 
-- Your vault lives on your computer as readable files.
+- Your selected Obsidian vault remains where Obsidian Sync placed it.
+- The app, vault pointer, and vault are separate; uninstalling Horizon does not remove the vault.
 - Horizon's server listens only on `127.0.0.1`.
 - There is no built-in analytics or telemetry service.
 - OAuth tokens and API keys are excluded from Git and release bundles.
 - In this preview, manually entered API keys are stored in Horizon's local app-data file, not an OS keychain. Use limited-purpose credentials and read [Privacy and credentials](docs/PRIVACY.md).
 
-This repository contains an empty starter vault only. Runtime calendar items, captures, project notes, integration logs, credentials, build output, and local settings are ignored.
+This repository contains app code plus empty fixtures for development. Release bundles contain the app only. Runtime calendar items, captures, project notes, integration logs, credentials, build output, and local settings are ignored.
 
 ## Develop locally
 
@@ -74,7 +81,7 @@ Release artifacts are built and tested on their target operating system. The rel
 ## Repository layout
 
 - `Dashboard/` - React, Vite, Node, and Electron application
-- `Calendar/`, `Inbox/`, `Project Registry/`, `Research Papers/`, `Runs/` - empty starter vault
+- `Calendar/`, `Inbox/`, `Project Registry/`, `Research Papers/`, `Runs/` - empty development fixtures (not included in the installer)
 - `docs/` - installation, usage, privacy, and platform notes
 
 ## License

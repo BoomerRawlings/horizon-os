@@ -61,5 +61,5 @@ Write-Host "[6/6] Cleaning temp ..."
 Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "PACK SUCCESS: $destApp" -ForegroundColor Green
-Write-Host "Launch check: Horizon.exe --boot"
+Write-Host "Launch check:  Horizon.exe --boot   (or double-click 'Launch Rawlings OS.cmd')"
 exit 0

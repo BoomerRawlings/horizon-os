@@ -1,8 +1,6 @@
 {
-  "name": "horizon-os-dashboard",
-  "version": "0.2.1",
-  "description": "A local-first desktop workspace for capture, projects, calendar, and focused work.",
-  "author": "Horizon contributors",
+  "name": "rawlings-os-dashboard",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,19 +8,19 @@
     "build": "tsc --noEmit && vite build",
     "native:dev": "npm run build && electron .",
     "native:pack:safe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack-native.ps1",
-    "native:pack:mac": "npm run build && electron-builder --mac --x64 --arm64",
+    "native:pack:mac": "npm run build && electron-builder --mac dmg zip",
     "make:dist": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-distribution.ps1",
     "native:pack": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
     "native:pack:only": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
     "_native:pack:unsafe": "npm run build && electron-builder --win dir",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "privacy:scan": "node scripts/privacy-scan.mjs",
     "smoke": "node tests/smoke.mjs",
-    "test:heuristics": "node tests/heuristics.test.mjs"
+    "test:heuristics": "node tests/heuristics.test.mjs",
+    "test:vault": "node tests/vaultConnection.test.cjs"
   },
   "main": "electron/main.cjs",
   "build": {
-    "appId": "io.github.boomerrawlings.horizon",
+    "appId": "com.rawlings.horizon",
     "productName": "Horizon",
     "asar": false,
     "directories": {
@@ -39,12 +37,6 @@
       "server-start.ps1",
       "run-hidden.vbs",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "dist-installer/starter-vault",
-        "to": "starter-vault"
-      }
     ],
     "win": {
       "target": [

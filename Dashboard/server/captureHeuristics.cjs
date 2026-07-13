@@ -331,7 +331,7 @@ function projectAction(text, hasAction) {
     type: "create_project",
     label: `Project proposal: ${title}`.slice(0, 48),
     confidence: "medium",
-    reason: "Detected an explicit request to start a project; Horizon will stage a local proposal without inventing a folder or registry location.",
+    reason: "Detected an explicit request to start a project; Horizon will prepare a local proposal for review.",
     payload: {
       title,
       body: text.trim(),

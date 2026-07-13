@@ -17,8 +17,17 @@ const {
 // PHASE-08: deterministic local pre-triage (zero AI, zero network).
 const { applyCourseworkDeadlineDefault, heuristicActions } = require("./server/captureHeuristics.cjs");
 const { currentLocalIsoDate } = require("./server/currentDate.cjs");
+const {
+  defaultHorizonAppDataDir,
+  pathExistsDirectory,
+  vaultConnectionPath,
+  vaultStructureStatus,
+} = require("./server/vaultConnection.cjs");
 
 const ROOT = process.env.HORIZON_VAULT_ROOT || path.resolve(__dirname, "..");
+const HORIZON_APP_DATA_DIR = defaultHorizonAppDataDir();
+const HORIZON_VAULT_CONNECTION_PATH = process.env.HORIZON_VAULT_CONNECTION_PATH || vaultConnectionPath(HORIZON_APP_DATA_DIR);
+const APP_SOURCE_ROOT = path.resolve(process.env.HORIZON_APP_SOURCE_ROOT || ROOT);
 const ITEMS_DIR = path.join(ROOT, "Calendar", "Items");
 const NOW_PATH = path.join(ROOT, "Calendar", "Now.md");
 const DIST_DIR = path.join(__dirname, "dist");
@@ -38,6 +47,9 @@ const CAPTURE_ACTION_HISTORY_PATH = path.join(HORIZON_LOCAL_DIR, "capture-action
 const RESEARCH_LIBRARY_CACHE_PATH = path.join(HORIZON_LOCAL_DIR, "research-library-cache.json");
 const RESEARCH_METADATA_CACHE_PATH = path.join(HORIZON_LOCAL_DIR, "research-metadata-cache.json");
 const RESEARCH_PAPER_STATE_PATH = path.join(HORIZON_LOCAL_DIR, "research-paper-state.json");
+const RESEARCH_INDEX_PATH = path.join(ROOT, "Research Papers", "index.md");
+const RESEARCH_SUBJECTS_START = "<!-- horizon:custom-subjects:start -->";
+const RESEARCH_SUBJECTS_END = "<!-- horizon:custom-subjects:end -->";
 const GOOGLE_OAUTH_CLIENT_PATH = path.join(HORIZON_LOCAL_DIR, "credentials", "google-oauth-client.json");
 const STARTUP_DIR = path.join(
   process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"),
@@ -59,16 +71,9 @@ const HORIZON_NATIVE_APP_EXE = process.env.HORIZON_NATIVE_APP_EXE ||
 // The source checkout (with node_modules + the build/packaging toolchain) always lives at
 // <vault>/Dashboard, even when this server is the PACKAGED app running from native-dist —
 // which has no toolchain of its own. Self-updates must build and repackage there.
-const REPO_DASHBOARD_DIR = path.join(ROOT, "Dashboard");
+const REPO_DASHBOARD_DIR = path.resolve(process.env.HORIZON_SOURCE_DASHBOARD || path.join(APP_SOURCE_ROOT, "Dashboard"));
 const REPO_HIDDEN_RUNNER = path.join(REPO_DASHBOARD_DIR, "run-hidden.vbs");
 const REPO_PACK_SCRIPT = path.join(REPO_DASHBOARD_DIR, "scripts", "pack-native.ps1");
-const HORIZON_APP_DATA_DIR = process.env.HORIZON_APP_DATA_DIR || (
-  process.platform === "win32"
-    ? path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "Horizon")
-    : process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Application Support", "Horizon")
-      : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "Horizon")
-);
 const INTEGRATION_SETTINGS_PATH = path.join(HORIZON_APP_DATA_DIR, "integration-settings.json");
 const INTEGRATION_RUN_LOG_DIR = path.join(ROOT, "Runs", "IntegrationTests");
 const PORT = Number(process.env.PORT || 3873);
@@ -77,7 +82,7 @@ const GOOGLE_OAUTH_REDIRECT_URI = `http://${HOST}:${PORT}`;
 const APP_TIME_ZONE = process.env.HORIZON_TIME_ZONE || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 function currentToday() {
   return currentLocalIsoDate({
-    override: process.env.HORIZON_TODAY,
+    override: process.env.RSB_TODAY,
     timeZone: APP_TIME_ZONE,
   });
 }
@@ -404,7 +409,7 @@ function execFile(command, args, options = {}) {
 }
 
 function git(args, options = {}) {
-  return execFile("git", args, { ...options, cwd: ROOT });
+  return execFile("git", args, { ...options, cwd: APP_SOURCE_ROOT });
 }
 
 function isSafeWebUrl(value) {
@@ -429,8 +434,11 @@ async function startProcess(target) {
     );
     return;
   }
-
-  await execFile(process.platform === "darwin" ? "open" : "xdg-open", [target], { cwd: ROOT, timeout: 15_000 });
+  if (process.platform === "darwin") {
+    await execFile("open", [target], { cwd: ROOT, timeout: 15_000 });
+    return;
+  }
+  await execFile("xdg-open", [target], { cwd: ROOT, timeout: 15_000 });
 }
 
 const FOCUS_CODEX_SCRIPT = String.raw`
@@ -822,6 +830,18 @@ function isAppUpdatePath(filePath) {
 }
 
 async function updateSnapshot(fetchRemote) {
+  if (!fs.existsSync(path.join(APP_SOURCE_ROOT, ".git")) || !fs.existsSync(path.join(REPO_DASHBOARD_DIR, "package.json"))) {
+    return {
+      branch: null,
+      current: null,
+      dirty: false,
+      latest: null,
+      message: "This installed build is updated by installing a newer Horizon package.",
+      supported: false,
+      updateAvailable: false,
+      upstream: null,
+    };
+  }
   const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
   const upstream = await trackedBranch();
 
@@ -919,10 +939,12 @@ function saveIntegrationStore(store) {
 function mergedIntegrationSettings(id, store = readIntegrationStore()) {
   const definition = integrationDefinition(id);
   if (!definition) throw new Error("Unknown integration");
-  return {
+  const settings = {
     ...definition.defaultSettings,
     ...(store.integrations[id]?.settings || {}),
   };
+  if (id === "obsidian") settings.vaultPath = ROOT;
+  return settings;
 }
 
 function secretTail(value) {
@@ -983,8 +1005,8 @@ function redactedIntegrationSettingsStore(store = readIntegrationStore()) {
 
   return {
     generatedAt: nowIso(),
-    source: "%APPDATA%\\Horizon\\integration-settings.json",
-    secretsPolicy: "Secrets are redacted. Actual keys remain in Windows app-data and are not written to the vault.",
+    source: "Horizon app-data/integration-settings.json",
+    secretsPolicy: "Secrets are redacted. Actual keys remain in this machine's Horizon app-data and are not written to the vault.",
     integrations,
     version: 1,
   };
@@ -1084,42 +1106,6 @@ function integrationRecord(id) {
     rawSettings: settings,
     redactedSettings: redactIntegrationSettings(id, settings),
     saved,
-  };
-}
-
-function pathExistsDirectory(value) {
-  try {
-    return Boolean(value && fs.existsSync(value) && fs.statSync(value).isDirectory());
-  } catch {
-    return false;
-  }
-}
-
-function vaultStructureStatus(vaultPath) {
-  const resolved = path.resolve(String(vaultPath || ROOT));
-  const exists = pathExistsDirectory(resolved);
-  const required = [
-    "00_Index.md",
-    "AGENTS.md",
-    "Calendar",
-    "Inbox",
-    "Runs",
-  ];
-  const horizon = [
-    "HORIZON.md",
-    path.join("00_System", "manifests", "integrations.manifest.json"),
-    path.join("00_System", "manifests", "dashboard.manifest.json"),
-    path.join("06_Integrations", "index.md"),
-  ];
-  const missingRequired = exists ? required.filter((item) => !fs.existsSync(path.join(resolved, item))) : required;
-  const missingHorizon = exists ? horizon.filter((item) => !fs.existsSync(path.join(resolved, item))) : horizon;
-  return {
-    exists,
-    missingHorizon,
-    missingRequired,
-    path: resolved,
-    ready: exists && missingRequired.length === 0,
-    initialized: exists && missingHorizon.length === 0,
   };
 }
 
@@ -1263,6 +1249,7 @@ function allIntegrationConnections() {
 function sanitizeIntegrationPayload(id, payload) {
   const existing = mergedIntegrationSettings(id);
   const settings = { ...existing, ...(payload.settings || payload || {}) };
+  if (id === "obsidian") settings.vaultPath = ROOT;
   for (const key of ["apiKey", "tokenOrKey", "zoteroApiKey"]) {
     if (Object.prototype.hasOwnProperty.call(settings, key) && !String(settings[key] || "").trim()) {
       settings[key] = existing[key] || "";
@@ -1961,7 +1948,6 @@ function relaunchAndExit({ boot = false } = {}) {
 // running Horizon.exe to swap files — a child of this process would be killed mid-update.
 // It runs against the source checkout (REPO_DASHBOARD_DIR), the only place with the toolchain.
 function startDetachedRepack({ relaunch = true } = {}) {
-  if (process.platform !== "win32") return false;
   if (!fs.existsSync(REPO_PACK_SCRIPT)) {
     return false;
   }
@@ -1983,15 +1969,8 @@ function startDetachedRepack({ relaunch = true } = {}) {
 }
 
 async function applyUpdate() {
-  if (process.platform !== "win32") {
-    const snapshot = await updateSnapshot(false);
-    return {
-      ...snapshot,
-      message: "Install macOS updates from the GitHub Releases page. In-app rebuilding is currently Windows-only.",
-      restarting: false,
-    };
-  }
   const before = await updateSnapshot(true);
+  if (!before.supported) return { ...before, restarting: false };
   if (before.dirty) {
     return {
       ...before,
@@ -2009,7 +1988,7 @@ async function applyUpdate() {
 
   try {
     await git(["pull", "--ff-only"], { timeout: 180_000 });
-    await execFile(NPM, ["ci", "--no-audit", "--no-fund"], { cwd: REPO_DASHBOARD_DIR, timeout: 240_000 });
+    await execFile(NPM, ["install"], { cwd: REPO_DASHBOARD_DIR, timeout: 240_000 });
   } catch (error) {
     return {
       ...before,
@@ -2692,7 +2671,7 @@ function writeCapturePacket(payload, options = {}) {
     text,
     "",
     "## Codex Parsing Request",
-    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in this Horizon vault.",
+    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in the Rawlings Second Brain.",
     "",
     "- If it has a date, create or update an RCF file in `Calendar/Items/`.",
     "- If it is a general note, keep or move it inside `Inbox/` unless a better existing folder applies.",
@@ -2984,7 +2963,7 @@ async function triageCaptureWithAi(payload) {
       ? []
       : ["Zotero is not configured. Do not include add_to_zotero actions; use save_note, queue_review, or ask_clarification instead."]),
     "Prefer 1-3 useful actions. Add ask_clarification only when missing information blocks useful progress.",
-    "The local vault root is the current Horizon vault.",
+    `The local vault root is ${ROOT}.`,
     `Current date is ${currentToday()}; timezone is ${APP_TIME_ZONE}.`,
   ].join(" ");
 
@@ -3117,7 +3096,7 @@ async function triageCapture(payload) {
   let aiNeedsInput = false;
   let model;
   let aiState = "disabled";
-  if (process.env.HORIZON_DISABLE_AI !== "1" && payload.allowAi !== false) {
+  if (process.env.RSB_DISABLE_AI !== "1" && payload.allowAi !== false) {
     const ai = await triageCaptureWithAi(payload);
     if (ai.ok) {
       aiActions = (ai.triage.actions || []).map((action) => ({ ...action, source: "ai" }));
@@ -3445,6 +3424,48 @@ function listResearchIdeas() {
     .sort((a, b) => String(b.created).localeCompare(String(a.created)) || b.id.localeCompare(a.id));
 }
 
+function createResearchDeskIdea(payload) {
+  const body = String(payload?.body || payload?.text || "").trim().slice(0, 8000);
+  if (!body) return { message: "Write something on the sticky before saving it.", ok: false, state: "empty", statusCode: 400 };
+
+  const dir = path.join(ROOT, "Research Papers", "Ideas");
+  fs.mkdirSync(dir, { recursive: true });
+  const topic = String(payload?.title || body.split(/\r?\n/, 1)[0] || "Research idea")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 120) || "Research idea";
+  const created = currentToday();
+  const filePath = uniqueFilePath(path.join(dir, `${created}__${safeSlug(topic)}.md`));
+  const bodyText = [
+    "---",
+    "type: research-idea",
+    "status: new",
+    `created: ${created}`,
+    `topic: ${JSON.stringify(topic)}`,
+    "---",
+    "",
+    body,
+    "",
+  ].join("\n");
+  fs.writeFileSync(filePath, bodyText, "utf8");
+
+  const relPath = vaultRelative(filePath);
+  return {
+    idea: {
+      created,
+      id: path.basename(filePath),
+      path: relPath,
+      preview: body.slice(0, 240),
+      status: "new",
+      topic,
+    },
+    message: "Sticky note saved to Research Ideas.",
+    ok: true,
+    state: "created",
+    statusCode: 201,
+  };
+}
+
 // Small generic frontmatter reader for Research Papers/*.md (PHASE-07 Saved Papers v1).
 // Not the RCF parser (parseItemContent) - that one is fixed to FIELD_ORDER; this is a
 // permissive key:value reader for whatever a research note's frontmatter happens to have.
@@ -3670,9 +3691,9 @@ function listVaultResearchPapers() {
   return fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".md") && name !== "index.md")
-    .map((name) => {
-      const filePath = path.join(dir, name);
-      const raw = fs.readFileSync(filePath, "utf8");
+    .map((name) => ({ name, raw: fs.readFileSync(path.join(dir, name), "utf8") }))
+    .filter(({ raw }) => readMarkdownFrontmatter(raw).type !== "zotero-library-shelf")
+    .map(({ name, raw }) => {
       const fields = readMarkdownFrontmatter(raw);
       const { citation, abstract, abstractLabel } = researchPaperParts(raw);
       const citekey = fields.citekey || path.basename(name, ".md");
@@ -3726,7 +3747,7 @@ function zoteroCredentials() {
 }
 
 function researchExternalIntegrationsDisabled() {
-  return process.env.HORIZON_DISABLE_EXTERNAL_INTEGRATIONS === "1";
+  return process.env.RSB_DISABLE_EXTERNAL_INTEGRATIONS === "1";
 }
 
 async function fetchZoteroPages(userId, apiKey, resource, query = {}) {
@@ -3881,6 +3902,31 @@ function collapseZoteroDuplicates(papers) {
     });
   }
   return unique;
+}
+
+function describeZoteroDuplicateGroups(papers) {
+  const byDoi = new Map();
+  for (const paper of papers) {
+    const doi = normalizeDoi(paper.doi);
+    if (!doi) continue;
+    byDoi.set(doi, [...(byDoi.get(doi) || []), paper]);
+  }
+  return [...byDoi.entries()]
+    .filter(([, copies]) => copies.length > 1)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([doi, copies]) => ({
+      doi,
+      copies: copies.map((paper) => ({
+        authorLabel: paper.authorLabel,
+        datePublished: paper.datePublished,
+        id: paper.id,
+        primarySubject: paper.primarySubject,
+        title: paper.title,
+        year: paper.year,
+        zoteroKey: paper.zoteroKey,
+        zoteroUrl: paper.zoteroUrl,
+      })),
+    }));
 }
 
 function crossrefDate(message) {
@@ -4048,6 +4094,7 @@ async function listResearchLibrary({ enrich = false, force = false } = {}) {
   const localPapers = listVaultResearchPapers();
   const library = await readZoteroResearchLibrary({ force });
   const rawRemotePapers = zoteroPapers(library);
+  const duplicateGroups = describeZoteroDuplicateGroups(rawRemotePapers);
   const remotePapers = collapseZoteroDuplicates(rawRemotePapers);
   const remoteByDoi = new Map(remotePapers.filter((paper) => normalizeDoi(paper.doi)).map((paper) => [normalizeDoi(paper.doi), paper]));
   const remoteByTitle = new Map(remotePapers.filter((paper) => normalizedResearchTitle(paper.title).length > 16).map((paper) => [normalizedResearchTitle(paper.title), paper]));
@@ -4097,12 +4144,270 @@ async function listResearchLibrary({ enrich = false, force = false } = {}) {
     papers,
     sources: {
       duplicateCount: rawRemotePapers.length - remotePapers.length,
+      duplicateGroups,
       lastSyncedAt: library.fetchedAt || null,
       mergedCount: papers.length,
       status: library.status,
+      subjects: researchSubjectRecords(papers),
       vaultCount: localPapers.length,
       zoteroCount: rawRemotePapers.length,
     },
+  };
+}
+
+function researchMarkdownText(value) {
+  return String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function replaceHorizonMarkdownBlock(raw, startMarker, endMarker, content) {
+  const block = `${startMarker}\n${content.trim()}\n${endMarker}`;
+  const start = raw.indexOf(startMarker);
+  const end = raw.indexOf(endMarker);
+  if (start >= 0 && end > start) {
+    return `${raw.slice(0, start)}${block}${raw.slice(end + endMarker.length)}`;
+  }
+  return `${raw.replace(/\s+$/, "")}\n\n${block}\n`;
+}
+
+function normalizeResearchSubjectName(value) {
+  return researchMarkdownText(value)
+    .replace(/[`<>|]/g, "")
+    .replace(/^[-#]+\s*/, "")
+    .slice(0, 72)
+    .trim();
+}
+
+function readCustomResearchSubjects() {
+  if (!fs.existsSync(RESEARCH_INDEX_PATH)) return [];
+  const raw = fs.readFileSync(RESEARCH_INDEX_PATH, "utf8");
+  const start = raw.indexOf(RESEARCH_SUBJECTS_START);
+  const end = raw.indexOf(RESEARCH_SUBJECTS_END);
+  if (start < 0 || end <= start) return [];
+  return [...new Set(raw
+    .slice(start + RESEARCH_SUBJECTS_START.length, end)
+    .split(/\r?\n/)
+    .map((line) => line.match(/^-\s+(.+)$/)?.[1] || "")
+    .map(normalizeResearchSubjectName)
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function writeCustomResearchSubjects(subjects) {
+  fs.mkdirSync(path.dirname(RESEARCH_INDEX_PATH), { recursive: true });
+  const raw = fs.existsSync(RESEARCH_INDEX_PATH)
+    ? fs.readFileSync(RESEARCH_INDEX_PATH, "utf8")
+    : "# Research Papers\n";
+  const values = [...new Set(subjects.map(normalizeResearchSubjectName).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  if (!values.length) {
+    const start = raw.indexOf(RESEARCH_SUBJECTS_START);
+    const end = raw.indexOf(RESEARCH_SUBJECTS_END);
+    if (start >= 0 && end > start) {
+      const before = raw.slice(0, start).replace(/\s+$/, "");
+      const after = raw.slice(end + RESEARCH_SUBJECTS_END.length).replace(/^\s+/, "").replace(/\s+$/, "");
+      fs.writeFileSync(RESEARCH_INDEX_PATH, `${before}${after ? `\n\n${after}` : ""}\n`, "utf8");
+    }
+    return [];
+  }
+  const content = [
+    "## Custom research subjects",
+    "",
+    "Subjects created intentionally in Horizon live in this one compact list. Paper-derived subjects remain attached to their source records.",
+    "",
+    ...values.map((subject) => `- ${subject}`),
+  ].join("\n");
+  fs.writeFileSync(
+    RESEARCH_INDEX_PATH,
+    replaceHorizonMarkdownBlock(raw, RESEARCH_SUBJECTS_START, RESEARCH_SUBJECTS_END, content),
+    "utf8",
+  );
+  return values;
+}
+
+function researchSubjectRecords(papers) {
+  const counts = new Map();
+  for (const paper of papers || []) {
+    const name = normalizeResearchSubjectName(paper.primarySubject) || "General Research";
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const customSubjects = readCustomResearchSubjects();
+  const customNames = new Set(customSubjects.map((subject) => subject.toLowerCase()));
+  return [...new Set([...counts.keys(), ...customSubjects])]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({
+      custom: customNames.has(name.toLowerCase()),
+      deletable: customNames.has(name.toLowerCase()) && !counts.get(name),
+      name,
+      paperCount: counts.get(name) || 0,
+    }));
+}
+
+function createResearchSubject(payload, papers) {
+  const name = normalizeResearchSubjectName(payload?.name);
+  if (!name || /^all subjects$/i.test(name)) {
+    return { message: "Enter a useful subject name.", ok: false, state: "invalid_subject", statusCode: 400 };
+  }
+  const records = researchSubjectRecords(papers);
+  if (records.some((subject) => subject.name.toLowerCase() === name.toLowerCase())) {
+    return { message: `${name} already exists.`, ok: false, state: "already_exists", statusCode: 409 };
+  }
+  const values = writeCustomResearchSubjects([...readCustomResearchSubjects(), name]);
+  return {
+    message: `${name} added. It is ready for intentional organization.`,
+    ok: true,
+    state: "created",
+    statusCode: 201,
+    subject: name,
+    subjects: researchSubjectRecords(papers).filter((subject) => values.includes(subject.name) || subject.paperCount),
+  };
+}
+
+function deleteResearchSubject(payload, papers) {
+  const requested = normalizeResearchSubjectName(payload?.name);
+  const customSubjects = readCustomResearchSubjects();
+  const name = customSubjects.find((subject) => subject.toLowerCase() === requested.toLowerCase());
+  if (!name) {
+    return { message: "Only subjects created in Horizon can be deleted here.", ok: false, state: "protected_subject", statusCode: 409 };
+  }
+  const record = researchSubjectRecords(papers).find((subject) => subject.name === name);
+  if (record?.paperCount) {
+    return {
+      message: `${name} is still used by ${record.paperCount} paper${record.paperCount === 1 ? "" : "s"}. Move those papers before deleting it.`,
+      ok: false,
+      state: "subject_in_use",
+      statusCode: 409,
+    };
+  }
+  writeCustomResearchSubjects(customSubjects.filter((subject) => subject !== name));
+  return {
+    message: `${name} deleted. No papers were changed.`,
+    ok: true,
+    state: "deleted",
+    statusCode: 200,
+    subjects: researchSubjectRecords(papers).filter((subject) => subject.name !== name),
+  };
+}
+
+function groupedResearchPapers(papers) {
+  const groups = new Map();
+  for (const paper of papers) {
+    const subject = researchMarkdownText(paper.primarySubject) || "General Research";
+    groups.set(subject, [...(groups.get(subject) || []), paper]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([subject, items]) => [
+      subject,
+      [...items].sort((a, b) => a.title.localeCompare(b.title) || a.authorLabel.localeCompare(b.authorLabel)),
+    ]);
+}
+
+function writeResearchNavigationArtifacts(library) {
+  const researchDir = path.join(ROOT, "Research Papers");
+  fs.mkdirSync(researchDir, { recursive: true });
+  const vaultPapers = library.papers.filter((paper) => paper.path);
+  const zoteroPapers = library.papers.filter((paper) => paper.zoteroKey);
+  const researchIdeas = listResearchIdeas();
+  const today = currentToday();
+  const indexPath = path.join(researchDir, "index.md");
+  const existingIndex = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, "utf8") : "# Research Papers\n";
+  const indexLines = [
+    "## Obsidian paper notes",
+    "",
+    "These are the papers with a real vault note. This directory is navigational only: it reflects existing notes and does not create subject or concept files.",
+    "",
+  ];
+  for (const [subject, papers] of groupedResearchPapers(vaultPapers)) {
+    indexLines.push(`### ${subject}`, "");
+    for (const paper of papers) {
+      const target = paper.path.replace(/\.md$/i, "");
+      const identity = `${researchMarkdownText(paper.authorLabel) || "Unknown"} (${researchMarkdownText(paper.year) || "n.d."})`;
+      indexLines.push(`- [[${target}|${identity}]] — ${researchMarkdownText(paper.title)}`);
+    }
+    indexLines.push("");
+  }
+  if (researchIdeas.length) {
+    indexLines.push(
+      "## Research ideas",
+      "",
+      "These are the open questions on the Research Desk. They stay separate from citable papers until you add a real source.",
+      "",
+    );
+    for (const idea of researchIdeas) {
+      const target = idea.path.replace(/\.md$/i, "");
+      indexLines.push(`- [[${target}|${researchMarkdownText(idea.topic) || "Research idea"}]]`);
+    }
+    indexLines.push("");
+  }
+  indexLines.push(
+    "## Zotero Shelf",
+    "",
+    `[[Zotero Shelf|Browse ${zoteroPapers.length} Zotero records]] without creating one Markdown file per record. Zotero remains the source for those records; create a connected note only when you have something to add.`,
+  );
+  const nextIndex = replaceHorizonMarkdownBlock(
+    existingIndex,
+    "<!-- horizon:paper-directory:start -->",
+    "<!-- horizon:paper-directory:end -->",
+    indexLines.join("\n"),
+  );
+  if (nextIndex !== existingIndex) fs.writeFileSync(indexPath, nextIndex, "utf8");
+
+  const shelfPath = path.join(researchDir, "Zotero Shelf.md");
+  const existingShelf = fs.existsSync(shelfPath) ? fs.readFileSync(shelfPath, "utf8") : "";
+  const shelfStart = "<!-- horizon:zotero-shelf:start -->";
+  const shelfEnd = "<!-- horizon:zotero-shelf:end -->";
+  let shelfUpdated = false;
+  if (!existingShelf || existingShelf.includes(shelfStart)) {
+    const shelfLines = [
+      "## Browse by subject",
+      "",
+      "This is a compact, generated view of Zotero. It does not create separate paper notes, copy PDFs, or add tags.",
+      "",
+    ];
+    for (const [subject, papers] of groupedResearchPapers(zoteroPapers)) {
+      shelfLines.push(`### ${subject}`, "");
+      for (const paper of papers) {
+        const title = researchMarkdownText(paper.title) || "Untitled paper";
+        const identity = `${researchMarkdownText(paper.authorLabel) || "Unknown"} (${researchMarkdownText(paper.year) || "n.d."})`;
+        const url = String(paper.zoteroUrl || "").replace(/[<>]/g, "");
+        const source = url ? `[${identity} — ${title}](<${url}>)` : `${identity} — ${title}`;
+        const vaultLink = paper.path ? ` · [[${paper.path.replace(/\.md$/i, "")}|Obsidian note]]` : "";
+        shelfLines.push(`- ${source}${vaultLink}`);
+      }
+      shelfLines.push("");
+    }
+    const shelfHeader = existingShelf || [
+      "---",
+      "type: zotero-library-shelf",
+      "source: zotero",
+      "managed_by: Horizon",
+      `refreshed: ${today}`,
+      "---",
+      "",
+      "# Zotero Shelf",
+      "",
+      "A readable Zotero mirror for Obsidian browsing. Zotero remains the canonical library; only papers you annotate need their own Markdown note.",
+      "",
+      "[[index|Back to Research Papers]]",
+    ].join("\n");
+    const withRefreshedHeader = existingShelf
+      ? updateMarkdownFrontmatterFields(shelfHeader, { refreshed: today })
+      : shelfHeader;
+    const nextShelf = replaceHorizonMarkdownBlock(withRefreshedHeader, shelfStart, shelfEnd, shelfLines.join("\n"));
+    if (nextShelf !== existingShelf) fs.writeFileSync(shelfPath, nextShelf, "utf8");
+    shelfUpdated = true;
+  }
+
+  return {
+    indexPath: vaultRelative(indexPath),
+    shelfPath: vaultRelative(shelfPath),
+    shelfUpdated,
+    vaultPaperCount: vaultPapers.length,
+    zoteroPaperCount: zoteroPapers.length,
   };
 }
 
@@ -4175,8 +4480,10 @@ async function syncResearchLibrary() {
     }
   }
   const result = await listResearchLibrary();
+  const navigation = writeResearchNavigationArtifacts(result);
   return {
     ...result,
+    navigation,
     sync: {
       metadataAttempted: firstPass.enrichment.attempted,
       metadataResolved: firstPass.enrichment.resolved,
@@ -5526,11 +5833,14 @@ async function handle(req, res) {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/health") {
+      const vault = vaultStructureStatus(ROOT);
       sendJson(res, 200, {
-        app: "horizon-os",
+        app: "rawlings-os",
         ui: "horizon-react-vite",
         staticRoot: path.basename(staticRoot()),
         vaultPath: ROOT,
+        vaultReady: vault.ready,
+        vaultSelectionStored: fs.existsSync(HORIZON_VAULT_CONNECTION_PATH),
       });
       return;
     }
@@ -5744,6 +6054,27 @@ async function handle(req, res) {
       sendJson(res, 200, result);
       return;
     }
+    if ((req.method === "POST" || req.method === "DELETE") && url.pathname === "/api/research/subjects") {
+      const payload = await readBody(req);
+      const library = await listResearchLibrary();
+      const result = req.method === "POST"
+        ? createResearchSubject(payload, library.papers)
+        : deleteResearchSubject(payload, library.papers);
+      sendJson(res, result.statusCode, result);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/research/obsidian-shelf") {
+      const library = await listResearchLibrary();
+      const navigation = writeResearchNavigationArtifacts(library);
+      sendJson(res, 200, { ...navigation, ok: true });
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/research/ideas") {
+      const payload = await readBody(req);
+      const result = createResearchDeskIdea(payload);
+      sendJson(res, result.statusCode, result);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/research/copy") {
       const payload = await readBody(req);
       const copied = copyResearchTextToClipboard(payload.text);
@@ -5866,6 +6197,6 @@ if (process.argv.includes("--check")) {
   selfCheck();
 } else {
   http.createServer(handle).listen(PORT, HOST, () => {
-    console.log(`Horizon OS running at http://${HOST}:${PORT}`);
+    console.log(`Rawlings dashboard running at http://${HOST}:${PORT}`);
   });
 }

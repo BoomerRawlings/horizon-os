@@ -318,14 +318,18 @@ const steps: WizardStep[] = [
             Review the result, record the next action, and sweep the Capture Queue.
           </InfoCard>
         </div>
-        <InfoCard icon={FolderOpen} title="Optional setup — do this when useful" tone="muted">
+        <InfoCard icon={FolderOpen} title="Your synced vault is already attached" tone="muted">
           <p>
-            Obsidian is an optional second editor for the same vault. Choose <Term>Open folder as vault</Term> and use:
+            Horizon is reading the existing vault in place at:
           </p>
           <PathChip value={vaultPath || "your Horizon vault folder"} />
           <p className="mt-2">
-            Connect Drive or other tools under <Term>Settings → Integrations</Term>. Microsoft and Codex are launchers;
-            they do not need to show as Connected.
+            There is nothing to import or duplicate. Calendar items, projects, papers, captures, and notes arrive through
+            Obsidian Sync. This computer only needs its own sign-ins under <Term>Settings → Integrations</Term>.
+          </p>
+          <p className="mt-2">
+            If you ever move the local vault folder, use <Term>Settings → Data & Storage → Change vault</Term>. Horizon
+            validates the replacement and restarts every workspace against the same root.
           </p>
         </InfoCard>
         <div className="flex items-start gap-3 rounded-xl border border-[rgba(var(--accent-rgb),0.22)] bg-[rgba(var(--accent-rgb),0.07)] p-3.5">

@@ -8,7 +8,10 @@ The Horizon app code lives here.
 - `src/` - React app source.
 - `server.cjs` - local API/static server.
 - `electron/main.cjs` - native desktop app bootstrap.
+- `server/vaultConnection.cjs` - machine-local vault selection and validation.
 - `dist/` - built UI served by the server.
+
+The installed app and the user's vault are separate. The Windows installer places app code under `%LOCALAPPDATA%/HorizonOS`; first launch attaches to an existing Obsidian Sync folder without copying it.
 
 ## Git Policy
 

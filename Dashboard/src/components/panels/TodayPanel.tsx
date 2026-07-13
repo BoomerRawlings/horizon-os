@@ -11,8 +11,8 @@ const accentClass = {
   life: "bg-cyan-300",
   other: "bg-slate-400",
   reference: "bg-slate-500",
-  college: "bg-violet-400",
-  university: "bg-amber-300",
+  swc: "bg-violet-400",
+  ucsd: "bg-amber-300",
 };
 
 const chipClass = {

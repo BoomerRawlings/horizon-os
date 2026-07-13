@@ -46,8 +46,8 @@ import { markItemDone, openItemFile, snoozeItem } from "../../utils/calendarItem
 import { Panel } from "../ui/Panel";
 
 const calendarFilters = [
-  { key: "university", label: "University", description: "University coursework", color: "bg-amber-300" },
-  { key: "college", label: "College", description: "College coursework", color: "bg-violet-400" },
+  { key: "ucsd", label: "University", description: "University coursework", color: "bg-amber-300" },
+  { key: "swc", label: "College", description: "College coursework", color: "bg-violet-400" },
   { key: "life", label: "Life Admin", description: "Personal admin", color: "bg-cyan-300" },
   { key: "business", label: "Business", description: "Work and company", color: "bg-emerald-400" },
   { key: "reference", label: "Reference", description: "Holidays and observances", color: "bg-slate-500" },
@@ -59,8 +59,8 @@ const eventColorClass: Record<string, string> = {
   life: "border-cyan-300/24 bg-cyan-500/18 text-cyan-50 shadow-[inset_3px_0_0_rgba(103,232,249,0.72)]",
   other: "border-slate-300/18 bg-slate-500/18 text-slate-100 shadow-[inset_3px_0_0_rgba(148,163,184,0.64)]",
   reference: "border-slate-300/14 bg-slate-500/12 text-slate-200 shadow-[inset_3px_0_0_rgba(100,116,139,0.62)]",
-  college: "border-violet-300/30 bg-violet-500/24 text-violet-50 shadow-[inset_3px_0_0_rgba(167,139,250,0.78)]",
-  university: "border-yellow-300/28 bg-yellow-500/20 text-yellow-50 shadow-[inset_3px_0_0_rgba(250,204,21,0.75)]",
+  swc: "border-violet-300/30 bg-violet-500/24 text-violet-50 shadow-[inset_3px_0_0_rgba(167,139,250,0.78)]",
+  ucsd: "border-yellow-300/28 bg-yellow-500/20 text-yellow-50 shadow-[inset_3px_0_0_rgba(250,204,21,0.75)]",
 };
 
 const dotClass: Record<string, string> = {
@@ -68,8 +68,8 @@ const dotClass: Record<string, string> = {
   life: "bg-cyan-300",
   other: "bg-slate-400",
   reference: "bg-slate-500",
-  college: "bg-violet-400",
-  university: "bg-amber-300",
+  swc: "bg-violet-400",
+  ucsd: "bg-amber-300",
 };
 
 const timeRows = ["all-day", "8 AM", "9 AM", "10 AM", "11 AM", "12 PM", "1 PM", "2 PM", "3 PM", "4 PM", "5 PM", "6 PM", "7 PM", "8 PM", "9 PM"];

@@ -15,8 +15,8 @@ const forbidden = [
   { label: "OpenAI-style secret key", pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/ },
   { label: "Google API key", pattern: /\bAIza[0-9A-Za-z_-]{20,}\b/ },
   { label: "Slack token", pattern: /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/ },
-  { label: "private Windows user path", pattern: /[A-Z]:\\Users\\(?!<you>\\)[^\s"'`]+/i },
-  { label: "private macOS user path", pattern: /\/Users\/(?!<you>\/)[^\s"'`]+/ },
+  { label: "private Windows user path", pattern: /[A-Z]:\\Users\\(?!(?:<you>|Example)(?:\\|["']))[^\s"'`]+/i },
+  { label: "private macOS user path", pattern: /\/Users\/(?!(?:<you>|example)(?:\/|["']))[^\s"'`]+/ },
   { label: "private vault name", pattern: new RegExp(["Rawlings", "Second", "Brain"].join(""), "i") },
   { label: "legacy vault environment variable", pattern: new RegExp(["RAWLINGS", "SECOND", "BRAIN", "ROOT"].join("_")) },
   { label: "known private drive path", pattern: new RegExp(["G:", "\\\\My Drive", "\\\\inq"].join(""), "i") },
@@ -26,6 +26,7 @@ const forbidden = [
 function filesUnder(directory) {
   const files = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.name === ".git") continue;
     if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...filesUnder(fullPath));

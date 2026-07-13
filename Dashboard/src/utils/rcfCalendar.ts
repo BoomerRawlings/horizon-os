@@ -174,8 +174,10 @@ export function formatMonthLabel(date: Date) {
 export function calendarCategoryKey(categoryValue: string, contextValue = "") {
   const category = (categoryValue || "").toLowerCase();
   const context = `${category} ${contextValue || ""}`.toLowerCase();
-  if (category.includes("university")) return "university";
-  if (category.includes("college") || category.includes("school")) return "college";
+  // "ucsd"/"swc"/"southwestern" are legacy input aliases kept so existing vaults that used
+  // school-specific category words still map to the generic "University"/"College" buckets.
+  if (category.includes("ucsd") || category.includes("university")) return "ucsd";
+  if (category.includes("swc") || category.includes("southwestern") || category.includes("college") || category.includes("school")) return "swc";
   if (/\b(reference|observance|holiday|daylight|dst)\b/.test(context)) return "reference";
   if (category.includes("business")) return "business";
   if (category.includes("life")) return "life";
@@ -188,8 +190,8 @@ export function categoryKey(item: RcfCalendarItem) {
 
 export function categoryDisplayLabel(item: RcfCalendarItem) {
   const key = categoryKey(item);
-  if (key === "college") return "College";
-  if (key === "university") return "University";
+  if (key === "swc") return "College";
+  if (key === "ucsd") return "University";
   if (key === "reference") return "Reference";
   if (key === "life") return "Life Admin";
   if (key === "business") return "Business";

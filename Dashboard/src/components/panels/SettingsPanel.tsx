@@ -6,6 +6,7 @@ import {
   Database,
   DownloadCloud,
   Eye,
+  FolderOpen,
   Keyboard,
   Palette,
   Plug,
@@ -270,6 +271,7 @@ export function SettingsPanel({
   const [applyingUpdate, setApplyingUpdate] = useState(false);
   const [updatingStartup, setUpdatingStartup] = useState(false);
   const [restartingApp, setRestartingApp] = useState(false);
+  const [selectingVault, setSelectingVault] = useState(false);
   const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const messageTimerRef = useRef<number | null>(null);
@@ -591,6 +593,31 @@ export function SettingsPanel({
     }
   }
 
+  async function chooseDifferentVault() {
+    if (!window.horizonDesktop) {
+      setMessage("Vault selection is available from the installed Horizon desktop app.");
+      return;
+    }
+    setSelectingVault(true);
+    setMessage("Choose the top-level folder created by Obsidian Sync...");
+    try {
+      const result = await window.horizonDesktop.chooseVault();
+      if (result.canceled) {
+        setMessage("Vault selection canceled. The current vault is unchanged.");
+      } else if (result.restarting) {
+        setVaultPath(result.vaultPath);
+        setMessage("Vault connected. Horizon is restarting so every workspace uses it.");
+      } else {
+        setVaultPath(result.vaultPath);
+        setMessage("This vault is already active on this machine.");
+      }
+    } catch {
+      setMessage("Horizon could not open the vault picker.");
+    } finally {
+      setSelectingVault(false);
+    }
+  }
+
   function renderSection(section: SettingsSectionId) {
     if (section === "focus") {
       return (
@@ -739,7 +766,7 @@ export function SettingsPanel({
             <span>
               <span className="block text-sm font-medium text-white">Local-first storage</span>
               <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-                The local vault is always Horizon's source of truth. Credentials stay in Horizon's local app-data folder.
+                The local vault is always Horizon's source of truth. Credentials stay in Windows app data.
               </span>
             </span>
             <span className="shrink-0 rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-200">
@@ -769,8 +796,22 @@ export function SettingsPanel({
       return (
         <SettingCard title="Data & Storage">
           <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
-            <div className="text-sm font-medium text-white">Vault location</div>
-            <div className="mt-1 break-all text-xs text-slate-500">{vaultPath || "Detecting your local vault..."}</div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-white">Active Obsidian vault</div>
+                <div className="mt-1 break-all text-xs text-slate-500">{vaultPath || "Detecting your local vault..."}</div>
+                <div className="mt-2 text-xs leading-relaxed text-slate-400">Horizon reads this folder in place. The path is stored only on this computer.</div>
+              </div>
+              <button
+                className="flex h-9 shrink-0 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-xs text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.3)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={selectingVault}
+                onClick={() => void chooseDifferentVault()}
+                type="button"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                {selectingVault ? "Choosing..." : "Change vault"}
+              </button>
+            </div>
           </div>
           <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
             <div className="text-sm font-medium text-white">Capture queue</div>

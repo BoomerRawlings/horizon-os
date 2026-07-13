@@ -2,5 +2,5 @@
   "productName": "Horizon",
   "updateRepoUrl": "https://github.com/BoomerRawlings/horizon-os.git",
   "updateBranch": "main",
-  "_comment": "Canonical public code-only update repository. Fork maintainers must replace updateRepoUrl with their own scrubbed repository before distributing a fork."
+  "_comment": "Public code-only source for app updates. The distribution builder stamps the branch and commit used for each bundle. Vault files are never part of this checkout."
 }

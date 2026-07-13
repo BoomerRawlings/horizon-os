@@ -9,7 +9,7 @@ function Test-HorizonPort {
   param([int]$Port)
   try {
     $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 1
-    return $response.app -eq "horizon-os" -and $response.ui -eq "horizon-react-vite"
+    return $response.app -eq "rawlings-os" -and $response.ui -eq "horizon-react-vite"
   } catch {
     return $false
   }
@@ -58,8 +58,8 @@ if (-not $node) {
 $oldPort = $env:PORT
 $env:PORT = [string]$port
 
-$outLog = Join-Path $env:TEMP "horizon-os.log"
-$errLog = Join-Path $env:TEMP "horizon-os.err.log"
+$outLog = Join-Path $env:TEMP "rawlings-os.log"
+$errLog = Join-Path $env:TEMP "rawlings-os.err.log"
 Start-Process -FilePath $node -ArgumentList @($server) -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
 
 $env:PORT = $oldPort
@@ -71,4 +71,4 @@ for ($i = 0; $i -lt 30; $i++) {
   Start-Sleep -Milliseconds 250
 }
 
-throw "Horizon OS did not start. Logs are in $env:TEMP as horizon-os.log and horizon-os.err.log."
+throw "Horizon OS did not start. Logs are in $env:TEMP as rawlings-os.log and rawlings-os.err.log."

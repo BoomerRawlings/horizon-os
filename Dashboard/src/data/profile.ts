@@ -94,7 +94,7 @@ export const defaultIntegrationConnections: IntegrationConnection[] = [
     statusLabel: "Credentials needed",
     actionLabel: "Configure",
     detailLabel: "Zotero credentials not configured",
-    permissionSummary: "Stores a Zotero User ID and API key in Horizon's local app-data file. OS keychain storage is not implemented yet.",
+    permissionSummary: "Uses a Zotero User ID and API key to test and later sync library metadata.",
   },
   {
     id: "ai-agent",
@@ -104,8 +104,8 @@ export const defaultIntegrationConnections: IntegrationConnection[] = [
     status: "api_key_required",
     statusLabel: "API key required",
     actionLabel: "Add key",
-    detailLabel: "Stored locally; OS keychain support is planned",
-    permissionSummary: "Can use profile and high-level workspace context once connected. The API key is currently stored in Horizon's local app-data file.",
+    detailLabel: "Key validation requires secure storage",
+    permissionSummary: "Can use profile and high-level workspace context for short personalization once connected.",
   },
 ];
 

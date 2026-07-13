@@ -60,4 +60,4 @@ You do not need to empty every queue before doing useful work.
 
 Profile, theme, start page, timer defaults, privacy controls, and integrations live under Settings. Some integrations are full data sources; others intentionally open the native app or a web page. Horizon labels those capabilities separately.
 
-Obsidian is optional. Opening the HorizonOS folder as an Obsidian vault gives you another editor for the same files; it does not create a second copy.
+Horizon uses the existing Obsidian vault selected on this computer. Obsidian Sync moves the vault files between devices; each Horizon installation remembers its own local path and requires its own integration sign-ins. Change the active folder under **Settings > Data & Storage** without importing or duplicating notes.

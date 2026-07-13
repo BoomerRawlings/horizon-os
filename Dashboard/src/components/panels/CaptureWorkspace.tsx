@@ -261,7 +261,7 @@ function lowValueQueuedCaptureReason(value: string) {
     return "This looks like a canceled or throwaway capture rather than something worth saving.";
   }
   // Short captures that ARE just a trash-word (e.g. a "# Capture" heading plus "trash")
-  // should offer cleanup too, including captures that contain only a cleanup instruction.
+  // should offer cleanup too — owner hit this 2026-07-08 with a capture reading "trash".
   if (normalized.length <= 34 && /\b(trash|junk|garbage|throwaway|throw away|delete this|delete me|discard)\b/.test(normalized)) {
     return "This capture only says to trash or discard it, so it is probably safe to delete.";
   }

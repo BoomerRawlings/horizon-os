@@ -1,33 +1,54 @@
-# Building the Windows distribution
+# Distributing Horizon
 
-The distribution builder creates one shareable ZIP containing a prebuilt Windows app, the one-click installer, and a clean starter vault.
+Horizon ships as an app-only installer. A vault is never bundled, copied, merged, or used as the application's update checkout.
 
-## Build
+## Build the Windows handoff
 
 From `Dashboard/`:
 
 ```powershell
-npm ci
 npm run native:pack:safe
 npm run make:dist
 ```
 
-The result is `Horizon-Setup-<version>.zip` on your Desktop. To choose another destination:
+The builder writes `Horizon-Setup-<version>.zip` to the Desktop. The recipient extracts the entire ZIP and runs `Install Horizon.cmd`.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-distribution.ps1 -OutputDirectory C:\path\to\output
+The ZIP contains:
+
+```text
+Install Horizon.cmd
+bootstrap-install.ps1
+SETUP.html
+distribution.json
+README.txt
+HorizonOS/
+  Dashboard/       app source plus the prebuilt Windows application
 ```
 
-## Recipient instructions
+It does not contain Calendar, Inbox, Runs, Project Registry, Research Papers, `.obsidian`, credentials, or machine-local Horizon state. The builder exits if anything is staged beside `HorizonOS/Dashboard`.
 
-The recipient extracts the complete ZIP and double-clicks `Install Horizon.cmd`. The installer copies Horizon to `%USERPROFILE%\HorizonOS` by default, creates shortcuts, and opens the setup guide.
+## Laptop handoff
 
-## Privacy boundary
+1. Install Obsidian and allow Obsidian Sync to finish downloading the existing vault.
+2. Run the Horizon installer.
+3. On first launch, select the synced vault's top-level folder.
+4. Connect machine-specific integrations.
 
-The builder copies the app and `dist-installer/starter-vault` only. It does not copy calendar items, captures, projects, credentials, local state, or integration logs from a working vault. Before sharing, confirm that the builder reports zero calendar items, captures, and pending triage files.
+The vault path is stored in Horizon's private application-data directory. Horizon validates the folder before starting and confirms that the local server is using that exact vault.
 
-`distribution.json` defines the public code-only repository used for optional source updates. Fork maintainers should change that URL to their own clean repository before distributing a fork.
+## Updates
 
-## macOS
+`distribution.json` points to the public, code-only repository. During packaging, the builder stamps the current branch and commit into the bundled copy of that file. The installer creates a sparse app-only checkout, so update operations can see only `Dashboard/` and cannot touch the selected vault.
 
-The Windows distribution script is intentionally Windows-only. Build macOS DMG and ZIP artifacts on a Mac using the commands in `docs/MACOS.md` at the repository root.
+Node.js and Git are update helpers only. The prebuilt application can launch without them.
+
+## macOS path
+
+The same vault-selection and machine-local connection code is cross-platform. Build the Mac artifacts on macOS from `Dashboard/` with:
+
+```bash
+npm ci
+npm run native:pack:mac
+```
+
+This produces DMG and ZIP artifacts in `Dashboard/native-dist/`. A signed/notarized public Mac release still requires an Apple Developer identity; an unsigned local build can be opened through macOS Privacy & Security. The Windows `.cmd` installer does not run on macOS.

@@ -9,10 +9,10 @@ const PORT = 3899;
 const BASE = `http://127.0.0.1:${PORT}`;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
-  // HORIZON_DISABLE_AI keeps triage deterministic + offline for smoke: it exercises the
+  // RSB_DISABLE_AI keeps triage deterministic + offline for smoke: it exercises the
   // PHASE-08 local heuristics (no network, no key needed), which is exactly the path we
   // want smoke to guard. AI refinement is tested manually, not in the 10-second smoke.
-  env: { ...process.env, PORT: String(PORT), HORIZON_DISABLE_AI: "1", HORIZON_DISABLE_EXTERNAL_INTEGRATIONS: "1" },
+  env: { ...process.env, PORT: String(PORT), RSB_DISABLE_AI: "1", RSB_DISABLE_EXTERNAL_INTEGRATIONS: "1" },
   stdio: "ignore",
 });
 
@@ -54,8 +54,9 @@ async function waitForHealth(tries = 40) {
 }
 
 const health = await waitForHealth();
-if (health.app !== "horizon-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
-ok("/api/health identifies horizon-os");
+if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
+if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
+ok("/api/health identifies rawlings-os and its ready active vault");
 
 const developmentSandboxResponse = await fetch(`${BASE}/api/development-sandbox`);
 const developmentSandboxHtml = await developmentSandboxResponse.text();
@@ -75,6 +76,10 @@ ok(`/api/items returned ${list.length} calendar item(s)`);
 const integ = await (await fetch(`${BASE}/api/integrations`)).json();
 if (!Array.isArray(integ.connections) || !integ.connections.length) fail("/api/integrations empty");
 if (!integ.connections.every((c) => c.capability)) fail("integration missing capability field");
+const obsidian = integ.connections.find((connection) => connection.id === "obsidian");
+if (!obsidian || !String(obsidian.detailLabel || "").includes(health.vaultPath)) {
+  fail("Obsidian integration does not match the server's active vault");
+}
 ok(`/api/integrations returned ${integ.connections.length} connections, all with capability`);
 
 const captureActions = await (await fetch(`${BASE}/api/capture/actions`)).json();
@@ -88,12 +93,27 @@ ok(`/api/capture/actions returned ${captureActions.actions.length} actions with 
 
 const papers = await (await fetch(`${BASE}/api/research/papers`)).json();
 if (!Array.isArray(papers.papers)) fail("/api/research/papers did not return a papers list");
-if (!papers.sources || typeof papers.sources.vaultCount !== "number" || typeof papers.sources.mergedCount !== "number" || typeof papers.sources.duplicateCount !== "number") {
+if (
+  !papers.sources
+  || typeof papers.sources.vaultCount !== "number"
+  || typeof papers.sources.mergedCount !== "number"
+  || typeof papers.sources.duplicateCount !== "number"
+  || !Array.isArray(papers.sources.duplicateGroups)
+  || !Array.isArray(papers.sources.subjects)
+) {
   fail("/api/research/papers did not return merged source counts");
+}
+if (papers.sources.duplicateGroups.some((group) => !group.doi || !Array.isArray(group.copies) || group.copies.length < 2)) {
+  fail("/api/research/papers returned an invalid exact-duplicate review group");
+}
+if (papers.sources.subjects.some((subject) => !subject.name || typeof subject.paperCount !== "number" || typeof subject.deletable !== "boolean")) {
+  fail("/api/research/papers returned an invalid subject catalog");
 }
 if (!papers.enrichment || typeof papers.enrichment.attempted !== "number" || typeof papers.enrichment.unresolved !== "number") {
   fail("/api/research/papers did not return metadata enrichment status");
 }
+// The Research Desk always receives honest paper metadata. Missing values are explicit,
+// never omitted or guessed, so the UI can offer a focused repair action.
 if (papers.papers.length && papers.papers.some((p) => (
   p.citation === undefined
   || p.abstract === undefined
@@ -112,16 +132,27 @@ if (papers.papers.length && papers.papers.some((p) => (
 ))) {
   fail("/api/research/papers missing citation/abstract/DOI/date/workflow fields");
 }
+if (papers.papers.some((paper) => paper.path === "Research Papers/Zotero Shelf.md")) {
+  fail("/api/research/papers treated the generated Zotero Shelf as a paper");
+}
 const knownDois = papers.papers.map((paper) => paper.doi).filter((doi) => doi && doi !== "unknown");
 if (new Set(knownDois).size !== knownDois.length) {
   fail("/api/research/papers returned duplicate DOI cards");
 }
 ok(`/api/research/papers returned ${papers.papers.length} paper(s) with labeled summaries and metadata status`);
 
-// Research ideas endpoint: an empty result is valid for a new vault.
+// PHASE-12: research ideas endpoint (empty-shaped is valid — the owner may have none yet).
 const ideas = await (await fetch(`${BASE}/api/research/ideas`)).json();
 if (!Array.isArray(ideas.ideas)) fail("/api/research/ideas did not return an ideas array");
 ok(`/api/research/ideas returned ${ideas.ideas.length} idea(s)`);
+
+const emptyIdea = await fetch(`${BASE}/api/research/ideas`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ body: " " }),
+});
+if (emptyIdea.status !== 400) fail(`/api/research/ideas should reject an empty sticky with 400, got ${emptyIdea.status}`);
+ok("/api/research/ideas rejects an empty sticky without writing a note");
 
 const projects = await (await fetch(`${BASE}/api/projects`)).json();
 if (!Array.isArray(projects.projects)) fail("/api/projects did not return a projects array");
@@ -167,7 +198,7 @@ if (!pile.items.every((it) => it.id && (it.source === "to_triage" || it.source =
 }
 ok(`/api/capture/pile returned ${pile.counts.total} item(s) (${pile.counts.toTriage} to-triage + ${pile.counts.queue} queue)`);
 
-// Local heuristics produce suggestions with no AI configured.
+// PHASE-08: local heuristics produce suggestions with NO AI configured (RSB_DISABLE_AI=1).
 async function triage(text) {
   const r = await fetch(`${BASE}/api/capture/triage`, {
     method: "POST",

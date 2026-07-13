@@ -1,11 +1,18 @@
-const { app, BrowserWindow, Menu, dialog, shell, screen } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell, screen } = require("electron");
 const childProcess = require("child_process");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
+const {
+  readVaultConnection,
+  samePath,
+  vaultConnectionPath,
+  vaultStructureStatus,
+  writeVaultConnection,
+} = require("../server/vaultConnection.cjs");
 
-const APP_ID = "io.github.boomerrawlings.horizon";
+const APP_ID = "com.rawlings.horizon";
 const HOST = "127.0.0.1";
 const PORT = 3873;
 const APP_ORIGIN = `http://${HOST}:${PORT}/`;
@@ -14,6 +21,9 @@ const APP_URL = `${APP_ORIGIN}${shouldLaunchWithBoot ? "?boot=1" : ""}`;
 
 let mainWindow = null;
 let serverProcess = null;
+let activeVaultRoot = "";
+let appSourceRoot = "";
+let connectionConfigPath = "";
 
 app.setName("Horizon");
 app.setAppUserModelId(APP_ID);
@@ -29,30 +39,128 @@ function appRoot() {
   return app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
 }
 
-function vaultRoot() {
-  if (process.env.HORIZON_VAULT_ROOT) return path.resolve(process.env.HORIZON_VAULT_ROOT);
-  if (!app.isPackaged) return path.resolve(appRoot(), "..");
-
+function sourceRoot() {
+  if (process.env.HORIZON_APP_SOURCE_ROOT) return path.resolve(process.env.HORIZON_APP_SOURCE_ROOT);
   let candidate = appRoot();
-  for (let depth = 0; depth < 8; depth += 1) {
-    if (fs.existsSync(path.join(candidate, "HORIZON.md")) || fs.existsSync(path.join(candidate, "AGENTS.md"))) {
+  for (let depth = 0; depth < 9; depth += 1) {
+    if (
+      fs.existsSync(path.join(candidate, "Dashboard", "package.json"))
+      && fs.existsSync(path.join(candidate, "Dashboard", "scripts"))
+    ) {
       return candidate;
     }
     const parent = path.dirname(candidate);
     if (parent === candidate) break;
     candidate = parent;
   }
+  return app.isPackaged ? appRoot() : path.resolve(appRoot(), "..");
+}
 
-  const defaultVault = path.join(app.getPath("documents"), "HorizonOS");
-  const starterVault = path.join(process.resourcesPath, "starter-vault");
-  if (!fs.existsSync(defaultVault)) {
-    if (fs.existsSync(starterVault)) {
-      fs.cpSync(starterVault, defaultVault, { recursive: true });
-    } else {
-      fs.mkdirSync(defaultVault, { recursive: true });
+function legacyIntegrationVault() {
+  try {
+    const settingsPath = path.join(app.getPath("userData"), "integration-settings.json");
+    if (!fs.existsSync(settingsPath)) return "";
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    return String(settings?.integrations?.obsidian?.settings?.vaultPath || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function saveVaultConnection(vaultPath, source) {
+  return writeVaultConnection(connectionConfigPath, vaultPath, source);
+}
+
+function invalidVaultDetail(status) {
+  if (!status.exists) return "That folder is not currently available. Make sure Obsidian Sync has created it locally, then try again.";
+  const missing = status.missingRequired.join(", ");
+  return `That folder exists, but it is missing Horizon's core vault structure: ${missing}. Let Obsidian Sync finish and choose the vault's top-level folder.`;
+}
+
+function showFolderDialog(options) {
+  return mainWindow ? dialog.showOpenDialog(mainWindow, options) : dialog.showOpenDialog(options);
+}
+
+function showSetupMessage(options) {
+  return mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options);
+}
+
+async function chooseVault({ initialPath = "", showIntroduction = false } = {}) {
+  if (showIntroduction) {
+    const intro = await dialog.showMessageBox({
+      buttons: ["Choose synced vault", "Quit"],
+      cancelId: 1,
+      defaultId: 0,
+      detail: "Open Obsidian and let Sync finish first. Horizon will use the files in place; it will not copy, merge, or replace your vault. Integration sign-ins stay local to this machine.",
+      message: "Connect Horizon to your existing Obsidian vault",
+      noLink: true,
+      title: "Horizon setup",
+      type: "info",
+    });
+    if (intro.response !== 0) return "";
+  }
+
+  let defaultPath = initialPath && fs.existsSync(initialPath) ? initialPath : os.homedir();
+  while (true) {
+    const selection = await showFolderDialog({
+      buttonLabel: "Use this vault",
+      defaultPath,
+      message: "Choose the top-level folder Obsidian Sync created on this computer.",
+      properties: ["openDirectory"],
+      title: "Choose your synced Obsidian vault",
+    });
+    if (selection.canceled || !selection.filePaths[0]) return "";
+
+    const status = vaultStructureStatus(selection.filePaths[0]);
+    if (status.ready) {
+      saveVaultConnection(status.path, "folder-picker");
+      return status.path;
+    }
+
+    defaultPath = status.exists ? status.path : defaultPath;
+    const retry = await showSetupMessage({
+      buttons: ["Choose another folder", "Cancel"],
+      cancelId: 1,
+      defaultId: 0,
+      detail: invalidVaultDetail(status),
+      message: "This is not the synced Horizon vault yet",
+      noLink: true,
+      title: "Horizon setup",
+      type: "warning",
+    });
+    if (retry.response !== 0) return "";
+  }
+}
+
+async function resolveVaultRoot() {
+  const explicit = String(process.env.HORIZON_VAULT_ROOT || "").trim();
+  if (explicit) {
+    const status = vaultStructureStatus(explicit);
+    if (!status.ready) throw new Error(`HORIZON_VAULT_ROOT is not a ready Horizon vault: ${status.path || explicit}`);
+    return status.path;
+  }
+
+  const forceSelection = process.argv.includes("--choose-vault");
+  const saved = readVaultConnection(connectionConfigPath);
+  if (!forceSelection && saved) {
+    const status = vaultStructureStatus(saved.vaultPath);
+    if (status.ready) return status.path;
+  }
+
+  if (!forceSelection) {
+    const migrationCandidates = [legacyIntegrationVault(), appSourceRoot];
+    for (const candidate of migrationCandidates) {
+      const status = vaultStructureStatus(candidate);
+      if (!status.ready) continue;
+      saveVaultConnection(status.path, "legacy-migration");
+      return status.path;
     }
   }
-  return defaultVault;
+
+  return chooseVault({
+    initialPath: saved?.vaultPath || legacyIntegrationVault(),
+    showIntroduction: true,
+  });
 }
 
 function iconPath() {
@@ -71,7 +179,7 @@ function rightHalfBounds() {
   };
 }
 
-function healthCheck() {
+function healthSnapshot() {
   return new Promise((resolve) => {
     const request = http.get(`http://${HOST}:${PORT}/api/health`, { timeout: 1000 }, (response) => {
       let body = "";
@@ -80,20 +188,29 @@ function healthCheck() {
       });
       response.on("end", () => {
         try {
-          const health = JSON.parse(body);
-          resolve(health.app === "horizon-os" && health.ui === "horizon-react-vite");
+          resolve(JSON.parse(body));
         } catch {
-          resolve(false);
+          resolve(null);
         }
       });
     });
 
     request.on("timeout", () => {
       request.destroy();
-      resolve(false);
+      resolve(null);
     });
-    request.on("error", () => resolve(false));
+    request.on("error", () => resolve(null));
   });
+}
+
+async function healthCheck() {
+  const health = await healthSnapshot();
+  return Boolean(
+    health
+    && health.app === "rawlings-os"
+    && health.ui === "horizon-react-vite"
+    && samePath(health.vaultPath, activeVaultRoot),
+  );
 }
 
 async function waitForServer() {
@@ -105,7 +222,15 @@ async function waitForServer() {
 }
 
 async function ensureServer() {
-  if (await healthCheck()) return;
+  const running = await healthSnapshot();
+  if (
+    running?.app === "rawlings-os"
+    && running?.ui === "horizon-react-vite"
+    && samePath(running.vaultPath, activeVaultRoot)
+  ) return;
+  if (running?.app === "rawlings-os" && running?.ui === "horizon-react-vite") {
+    throw new Error(`Another Horizon server is already using ${running.vaultPath}. Close that Horizon window, then open this one again for ${activeVaultRoot}.`);
+  }
 
   const serverPath = path.join(appRoot(), "server.cjs");
   if (!fs.existsSync(serverPath)) {
@@ -123,13 +248,17 @@ async function ensureServer() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
-      HORIZON_APP_DATA_DIR: process.env.HORIZON_APP_DATA_DIR || app.getPath("userData"),
+      HORIZON_APP_DATA_DIR: app.getPath("userData"),
+      HORIZON_APP_SOURCE_ROOT: appSourceRoot,
       HORIZON_NATIVE_APP_EXE: process.execPath,
-      HORIZON_VAULT_ROOT: vaultRoot(),
+      HORIZON_SOURCE_DASHBOARD: path.join(appSourceRoot, "Dashboard"),
+      HORIZON_TIME_ZONE: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      HORIZON_VAULT_CONNECTION_PATH: connectionConfigPath,
+      HORIZON_VAULT_ROOT: activeVaultRoot,
       PORT: String(PORT),
     },
     stdio: ["ignore", out, err],
-    windowsHide: process.platform === "win32",
+    windowsHide: true,
   });
 
   serverProcess.once("exit", () => {
@@ -157,14 +286,12 @@ function createWindow() {
       contextIsolation: true,
       backgroundThrottling: false,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.cjs"),
       sandbox: true,
     },
   });
   mainWindow.removeMenu();
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.setBounds(rightHalfBounds(), false);
@@ -189,7 +316,36 @@ function createWindow() {
   mainWindow.loadURL(APP_URL);
 }
 
-app.on("second-instance", () => {
+function restartForVault() {
+  const relaunchArgs = process.argv.slice(1).filter((argument) => argument !== "--choose-vault");
+  app.relaunch({ args: relaunchArgs });
+  app.exit(0);
+}
+
+async function chooseDifferentVault() {
+  const previous = activeVaultRoot;
+  const selected = await chooseVault({ initialPath: previous });
+  if (!selected) return { canceled: true, ok: false, restarting: false, vaultPath: previous };
+  if (samePath(selected, previous)) return { canceled: false, ok: true, restarting: false, vaultPath: previous };
+  setTimeout(restartForVault, 500);
+  return { canceled: false, ok: true, restarting: true, vaultPath: selected };
+}
+
+function registerDesktopBridge() {
+  ipcMain.handle("horizon:vault-status", () => ({
+    configStored: fs.existsSync(connectionConfigPath),
+    ok: true,
+    status: vaultStructureStatus(activeVaultRoot),
+    vaultPath: activeVaultRoot,
+  }));
+  ipcMain.handle("horizon:choose-vault", chooseDifferentVault);
+}
+
+app.on("second-instance", (_event, commandLine) => {
+  if (commandLine.includes("--choose-vault")) {
+    void chooseDifferentVault();
+    return;
+  }
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.setBounds(rightHalfBounds(), true);
@@ -198,6 +354,14 @@ app.on("second-instance", () => {
 
 app.whenReady().then(async () => {
   try {
+    appSourceRoot = sourceRoot();
+    connectionConfigPath = process.env.HORIZON_VAULT_CONNECTION_PATH || vaultConnectionPath(app.getPath("userData"));
+    activeVaultRoot = await resolveVaultRoot();
+    if (!activeVaultRoot) {
+      app.quit();
+      return;
+    }
+    registerDesktopBridge();
     await ensureServer();
     createWindow();
   } catch (error) {
@@ -206,12 +370,8 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on("activate", () => {
-  if (!mainWindow) createWindow();
-});
-
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  app.quit();
 });
 
 app.on("before-quit", () => {

@@ -102,11 +102,11 @@ function Stop-ProcessWithTimeout {
   }
 }
 
-function Test-HorizonPort {
+function Test-RawlingsPort {
   param([int]$Port)
   try {
     $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 1
-    return $response.app -eq "horizon-os" -and $response.ui -eq "horizon-react-vite"
+    return $response.app -eq "rawlings-os" -and $response.ui -eq "horizon-react-vite"
   } catch {
     return $false
   }
@@ -160,13 +160,13 @@ function Start-HorizonWindow {
   }
 }
 
-if (Test-HorizonPort $preferredPort) {
+if (Test-RawlingsPort $preferredPort) {
   Start-HorizonWindow $preferredPort
   exit 0
 }
 
 $port = $preferredPort
-while ((Test-PortOpen $port) -and -not (Test-HorizonPort $port)) {
+while ((Test-PortOpen $port) -and -not (Test-RawlingsPort $port)) {
   $port++
 }
 
@@ -187,14 +187,14 @@ if (-not $node) {
 $oldPort = $env:PORT
 $env:PORT = [string]$port
 
-$outLog = Join-Path $env:TEMP "horizon-os.log"
-$errLog = Join-Path $env:TEMP "horizon-os.err.log"
+$outLog = Join-Path $env:TEMP "rawlings-os.log"
+$errLog = Join-Path $env:TEMP "rawlings-os.err.log"
 Start-Process -FilePath $node -ArgumentList @($server) -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
 
 $env:PORT = $oldPort
 
 for ($i = 0; $i -lt 30; $i++) {
-  if (Test-HorizonPort $port) {
+  if (Test-RawlingsPort $port) {
     Start-HorizonWindow $port
     exit 0
   }
@@ -202,5 +202,5 @@ for ($i = 0; $i -lt 30; $i++) {
 }
 
 Add-Type -AssemblyName PresentationFramework
-[System.Windows.MessageBox]::Show("Horizon OS did not start. Logs are in $env:TEMP as horizon-os.log and horizon-os.err.log.", "Horizon OS")
+[System.Windows.MessageBox]::Show("Horizon OS did not start. Logs are in $env:TEMP as rawlings-os.log and rawlings-os.err.log.", "Horizon OS")
 exit 1

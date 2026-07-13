@@ -571,19 +571,44 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
     }
   }
 
+  async function chooseObsidianVault() {
+    if (!window.horizonDesktop) {
+      setMessage("Vault selection is available from the installed Horizon desktop app.");
+      return;
+    }
+    setTesting(true);
+    setMessage("Choose the top-level folder created by Obsidian Sync...");
+    try {
+      const result = await window.horizonDesktop.chooseVault();
+      if (result.canceled) {
+        setMessage("Vault selection canceled. The current vault is unchanged.");
+      } else if (result.restarting) {
+        setMessage(`Connected ${result.vaultPath}. Horizon is restarting...`);
+      } else {
+        setDraft({ vaultPath: result.vaultPath });
+        setMessage("This vault is already active on this machine.");
+      }
+    } catch {
+      setMessage("Horizon could not open the vault picker.");
+    } finally {
+      setTesting(false);
+    }
+  }
+
   const fields = useMemo(() => {
     if (connection.id === "obsidian") {
       return (
         <div className="grid gap-3">
           <Field
-            autoFocus
-            disabled={loading || saving}
-            label="Vault path"
-            onChange={(vaultPath) => setDraft({ vaultPath })}
+            disabled
+            helper="Stored only on this machine. Changing it restarts Horizon so every workspace moves together."
+            label="Active vault"
+            onChange={() => undefined}
             placeholder={fallbackVaultPath}
             value={draft.vaultPath}
           />
           <div className="grid grid-cols-2 gap-2">
+            <ActionButton disabled={loading || saving || testing} icon={<FolderOpen className="h-4 w-4" />} label="Choose Different Vault" onClick={() => void chooseObsidianVault()} />
             <ActionButton disabled={loading || saving || testing} icon={<ShieldCheck className="h-4 w-4" />} label="Validate Vault" onClick={() => void runObsidianAction("validate")} />
             <ActionButton disabled={loading || saving || testing} icon={<Database className="h-4 w-4" />} label="Initialize Structure" onClick={() => void runObsidianAction("initialize")} />
             <ActionButton disabled={loading || saving || testing} icon={<RefreshCw className="h-4 w-4" />} label="Rebuild Indexes" onClick={() => void runObsidianAction("rebuild-indexes")} />

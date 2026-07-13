@@ -1039,7 +1039,11 @@ export function App() {
                 className={`motion-layer motion-layer-${workspaceLayerState("research")} research-workspace`}
                 ref={researchWorkspaceRef}
               >
-                <ResearchWorkspace onClose={() => showWorkspace("home")} onOpenWorkbench={openResearchWorkbench} />
+                <ResearchWorkspace
+                  isActive={workspaceScreen === "research" && workspaceLayerState("research") !== "hidden"}
+                  onClose={() => showWorkspace("home")}
+                  onOpenWorkbench={openResearchWorkbench}
+                />
               </div>
 
               <div

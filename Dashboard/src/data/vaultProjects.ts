@@ -2,7 +2,7 @@
 // human-maintained source of truth - see Project Registry/index.md) and adapts them into
 // Spotlight-shaped Project records. The static entries in projectSpotlightData.ts keep
 // their hand-tuned matching; this only ADDS vault-only projects and links vaultPath onto
-// static entries that share a name.
+// static entries that share a name. See docs/codex/horizon-roadmap/PHASE-09-projects-bridge.md.
 import type { Project, ProjectStatus } from "../types";
 import { normalizeVaultText } from "../utils/markdownText";
 

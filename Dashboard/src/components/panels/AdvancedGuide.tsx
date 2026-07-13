@@ -434,8 +434,8 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
           </div>
         </div>
         <p className="text-slate-500">
-          Configure connections under <Term>Settings → Integrations</Term>. Credentials stay in Horizon's local app-data folder; only
-          redacted connection summaries are mirrored into the vault.
+          Configure connections under <Term>Settings → Integrations</Term>. Credentials stay in this machine's Horizon
+          app data; only redacted connection summaries are mirrored into the vault.
         </p>
       </GuideSection>
 
@@ -444,7 +444,7 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
         id="horizon-guide-setup"
         label="Preferences"
         subtitle="Setup locations that are easy to confuse"
-        title="Settings, profile, and optional Obsidian"
+        title="Settings, profile, and your attached vault"
       >
         <ul className="grid gap-2">
           <li>
@@ -462,8 +462,9 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
             <Term>Profile → Workspace defaults:</Term> default Focus preset and preferred starting workspace.
           </li>
           <li>
-            <Term>Obsidian:</Term> optional. Open the Horizon vault folder as a vault to edit the same Markdown files
-            directly; Horizon itself does not require Obsidian to read or write them.
+            <Term>Settings → Data & Storage:</Term> shows the active local copy of your synced Obsidian vault. Change it
+            only when the vault moved or you are attaching this computer for the first time; Horizon validates and
+            restarts against the new root.
           </li>
         </ul>
         <p>

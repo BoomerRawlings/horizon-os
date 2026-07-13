@@ -22,6 +22,7 @@ export function ConstellationIcon({ className, ...props }: HorizonIconProps) {
     </svg>
   );
 }
+
 export function FocusIcon({ className, strokeWidth = 1.8, ...props }: HorizonIconProps) {
   return (
     <svg

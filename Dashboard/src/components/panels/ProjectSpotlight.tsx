@@ -31,7 +31,7 @@ import { Panel } from "../ui/Panel";
 
 // PHASE-09: fetched once per mount and merged with the static registry so a new
 // Project Registry/*.md note appears as a selectable Spotlight project after reload,
-// with no code edit.
+// with no code edit. See docs/codex/horizon-roadmap/PHASE-09-projects-bridge.md.
 function useProjectRegistry(): Project[] {
   const [registry, setRegistry] = useState<Project[]>(projectRegistry);
 
