@@ -142,6 +142,8 @@ type DeskContextMenu = {
 };
 
 type DragState = {
+  captureTarget: HTMLElement;
+  kind: "idea" | "stack";
   key: string;
   moved: boolean;
   origin: DeskPosition;
@@ -200,6 +202,10 @@ function readableInsights(value: string) {
 
 function ideaDeskKey(path: string) {
   return `idea:${path}`;
+}
+
+function stackDeskKey(mode: SortMode, key: string) {
+  return `stack:${mode}:${key}`;
 }
 
 function normalizedPaperDoi(value: string) {
@@ -384,7 +390,9 @@ function storedDeskLayout() {
   try {
     const parsed = JSON.parse(localStorage.getItem(RESEARCH_DESK_LAYOUT_KEY) || "{}");
     if (!parsed || typeof parsed !== "object") return {};
-    return Object.fromEntries(Object.entries(parsed as DeskLayout).filter(([key]) => key.startsWith("idea:"))) as DeskLayout;
+    return Object.fromEntries(
+      Object.entries(parsed as DeskLayout).filter(([key]) => key.startsWith("idea:") || key.startsWith("stack:")),
+    ) as DeskLayout;
   } catch {
     return {};
   }
@@ -437,6 +445,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const focusedStackRef = useRef<HTMLElement>(null);
   const focusedStackTriggerRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const suppressStackClickRef = useRef("");
   const cameraDragRef = useRef<CameraDragState | null>(null);
   const organizeTimers = useRef<number[]>([]);
   const focusedStackCloseTimer = useRef<number | null>(null);
@@ -448,7 +457,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   }
 
   function placeIdeas(nextIdeas: ResearchIdea[], useStoredLayout = false) {
-    const next = buildIdeaLayout(nextIdeas, useStoredLayout ? storedDeskLayout() : {});
+    const source = useStoredLayout ? storedDeskLayout() : layout;
+    const stackPositions = Object.fromEntries(Object.entries(source).filter(([key]) => key.startsWith("stack:"))) as DeskLayout;
+    const next = { ...stackPositions, ...buildIdeaLayout(nextIdeas, source) };
     setLayout(next);
     persistLayout(next);
   }
@@ -874,7 +885,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       )
     ) return;
     event.currentTarget.focus({ preventScroll: true });
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Drag still works if pointer capture is unavailable. */ }
     cameraDragRef.current = {
       origin: camera,
       pointerId: event.pointerId,
@@ -1188,21 +1199,50 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     organizeDesk(nextMode);
   }
 
-  function bringForward(key: string) {
+  function bringForward(key: string, fallback?: DeskPosition) {
     setLayout((current) => {
       const top = Math.max(0, ...Object.values(current).map((item) => item.z || 0)) + 1;
-      const next = { ...current, [key]: { ...(current[key] || { x: 0.3, y: 0.3, rotation: 0, z: top }), z: top } };
+      const next = { ...current, [key]: { ...(current[key] || fallback || { x: 0.3, y: 0.3, rotation: 0, z: top }), z: top } };
       return next;
     });
   }
 
-  function beginDrag(event: ReactPointerEvent<HTMLElement>, key: string) {
+  function nudgeStack(key: string, fallback: DeskPosition, deltaX: number, deltaY: number) {
+    const rect = deskRef.current?.getBoundingClientRect();
+    const xLimit = (rect?.width || 1200) * 0.72;
+    const yLimit = (rect?.height || 760) * 0.72;
+    setLayout((current) => {
+      const base = current[key] || fallback;
+      const top = Math.max(0, ...Object.values(current).map((item) => item.z || 0)) + 1;
+      const next = {
+        ...current,
+        [key]: {
+          ...base,
+          x: clamp(base.x + deltaX, -xLimit, xLimit),
+          y: clamp(base.y + deltaY, -yLimit, yLimit),
+          z: top,
+        },
+      };
+      persistLayout(next);
+      return next;
+    });
+    setMessage("Stack position saved. Use Stack desk to reset the arrangement.");
+  }
+
+  function stackClickWasDrag(key: string) {
+    if (suppressStackClickRef.current !== key) return false;
+    suppressStackClickRef.current = "";
+    return true;
+  }
+
+  function beginDrag(event: ReactPointerEvent<HTMLElement>, key: string, kind: DragState["kind"] = "idea", fallback?: DeskPosition) {
     if (event.button !== 0 || !deskRef.current) return;
-    const position = layout[key];
+    const position = layout[key] || fallback;
     if (!position) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
     const now = performance.now();
     dragRef.current = {
+      captureTarget: event.currentTarget,
+      kind,
       key,
       moved: false,
       origin: position,
@@ -1217,7 +1257,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     };
     setDraggingKey(key);
     setDropTargetPaperId("");
-    bringForward(key);
+    bringForward(key, position);
   }
 
   function paperAtPoint(clientX: number, clientY: number) {
@@ -1237,8 +1277,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     if (!drag || drag.pointerId !== event.pointerId || !desk) return;
     const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
     if (!drag.moved && distance < 5) return;
-    if (!drag.moved) drag.moved = true;
-    const targetPaper = paperAtPoint(event.clientX, event.clientY);
+    if (!drag.moved) {
+      drag.moved = true;
+      try { drag.captureTarget.setPointerCapture(event.pointerId); } catch { /* Drag still works if pointer capture is unavailable. */ }
+    }
+    const targetPaper = drag.kind === "idea" ? paperAtPoint(event.clientX, event.clientY) : null;
     setDropTargetPaperId((current) => current === (targetPaper?.id || "") ? current : targetPaper?.id || "");
     const rect = desk.getBoundingClientRect();
     const now = performance.now();
@@ -1248,12 +1291,16 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
     drag.lastAt = now;
-    const x = clamp(drag.origin.x + (event.clientX - drag.startX) / (rect.width * camera.scale), 0.05, 0.94);
-    const y = clamp(drag.origin.y + (event.clientY - drag.startY) / (rect.height * camera.scale), 0.09, 0.91);
-    setLayout((current) => ({ ...current, [drag.key]: { ...current[drag.key], x, y } }));
+    const x = drag.kind === "stack"
+      ? clamp(drag.origin.x + (event.clientX - drag.startX) / camera.scale, -rect.width * 0.72, rect.width * 0.72)
+      : clamp(drag.origin.x + (event.clientX - drag.startX) / (rect.width * camera.scale), 0.05, 0.94);
+    const y = drag.kind === "stack"
+      ? clamp(drag.origin.y + (event.clientY - drag.startY) / camera.scale, -rect.height * 0.72, rect.height * 0.72)
+      : clamp(drag.origin.y + (event.clientY - drag.startY) / (rect.height * camera.scale), 0.09, 0.91);
+    setLayout((current) => ({ ...current, [drag.key]: { ...(current[drag.key] || drag.origin), x, y } }));
   }
 
-  function cancelIdeaDrag() {
+  function cancelDeskItemDrag() {
     if (!dragRef.current) return;
     dragRef.current = null;
     setDraggingKey("");
@@ -1268,6 +1315,23 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const drag = dragRef.current;
     const desk = deskRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !desk) return;
+    if (drag.kind === "stack") {
+      if (drag.moved) {
+        suppressStackClickRef.current = drag.key;
+        setMessage("Stack position saved. Use Stack desk to reset the arrangement.");
+        window.setTimeout(() => {
+          if (suppressStackClickRef.current === drag.key) suppressStackClickRef.current = "";
+        }, 0);
+      }
+      setLayout((current) => {
+        persistLayout(current);
+        return current;
+      });
+      dragRef.current = null;
+      setDraggingKey("");
+      setDropTargetPaperId("");
+      return;
+    }
     const rect = desk.getBoundingClientRect();
     const dropPaper = drag.moved ? paperAtPoint(event.clientX, event.clientY) : null;
     const idea = ideas.find((item) => ideaDeskKey(item.path) === drag.key) || null;
@@ -1299,7 +1363,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   useEffect(() => {
     if (!isActive) return undefined;
     const finishDrag = (event: PointerEvent) => endDrag(event);
-    const cancelDrag = () => cancelIdeaDrag();
+    const cancelDrag = () => cancelDeskItemDrag();
     window.addEventListener("pointerup", finishDrag, true);
     window.addEventListener("pointercancel", cancelDrag, true);
     return () => {
@@ -1524,12 +1588,12 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
       <div
         className={`research-desk-canvas research-desk-${organizing || "resting"} ${cameraDragging ? "research-desk-panning" : ""}`}
-        aria-label="Research desk canvas. Drag or use W, A, S, and D to pan. Use the scroll wheel to zoom."
+        aria-label="Research desk canvas. Drag paper stacks to arrange them. Drag the empty desk or use W, A, S, and D to pan. Use the scroll wheel to zoom."
         onContextMenu={(event) => openDeskContextMenu(event, "canvas")}
         onDoubleClick={handleDeskDoubleClick}
         onPointerCancel={(event) => {
           endCameraDrag(event);
-          cancelIdeaDrag();
+          cancelDeskItemDrag();
         }}
         onPointerDown={beginCameraDrag}
         onPointerMove={moveCameraDrag}
@@ -1554,7 +1618,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         </div>
         <div className="research-desk-hint">
           <Compass className="h-3.5 w-3.5" />
-          <span>Drag or use WASD to pan · wheel to zoom ({Math.round(camera.scale * 100)}%) · double-click empty desk for a sticky.</span>
+          <span>Drag stacks to arrange · drag empty desk or use WASD to pan · wheel to zoom ({Math.round(camera.scale * 100)}%) · double-click for a sticky.</span>
         </div>
 
         {loading ? <div className="research-desk-loading">Setting out the research desk...</div> : null}
@@ -1592,6 +1656,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           {deskStacks.map((stack, stackIndex) => {
             const cursor = stackCursor(stack);
             const paper = stack.papers[cursor];
+            const stackLayoutKey = stackDeskKey(sortMode, stack.key);
+            const stackPosition = layout[stackLayoutKey] || { x: 0, y: 0, rotation: 0, z: 800 + stackIndex };
             const visibleLayers = Math.min(4, Math.max(0, stack.papers.length - 1));
             const stackKind = sortMode === "author"
               ? "Author range"
@@ -1602,22 +1668,52 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                   : "Subject stack";
             return (
               <section
-                className="research-paper-stack"
+                className={`research-paper-stack ${draggingKey === stackLayoutKey ? "research-paper-stack-dragging" : ""}`}
                 data-research-stack-key={stack.key}
                 key={stack.key}
+                onLostPointerCapture={() => {
+                  if (dragRef.current?.key === stackLayoutKey) cancelDeskItemDrag();
+                }}
+                onPointerCancel={() => cancelDeskItemDrag()}
+                onPointerDown={(event) => {
+                  const target = event.target instanceof Element ? event.target : null;
+                  if (target?.closest(".research-stack-cycle-controls, .research-paper-dogear")) return;
+                  beginDrag(event, stackLayoutKey, "stack", stackPosition);
+                }}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
                 onWheel={(event) => handleStackWheel(event, stack)}
                 role="listitem"
-                style={{ "--stack-delay": `${Math.min(stackIndex * 24, 240)}ms` } as CSSProperties}
+                style={{
+                  "--stack-delay": `${Math.min(stackIndex * 24, 240)}ms`,
+                  "--stack-offset-x": `${stackPosition.x}px`,
+                  "--stack-offset-y": `${stackPosition.y}px`,
+                  zIndex: stackPosition.z,
+                } as CSSProperties}
               >
                 <button
+                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. Click to open. Drag to arrange, or use Shift plus arrow keys.`}
                   aria-expanded={focusedStackKey === stack.key}
                   className="research-paper-stack-heading"
-                  onClick={(event) => openFocusedStack(stack, event.currentTarget)}
+                  onClick={(event) => {
+                    if (stackClickWasDrag(stackLayoutKey)) return;
+                    openFocusedStack(stack, event.currentTarget);
+                  }}
+                  onKeyDown={(event) => {
+                    if (!event.shiftKey) return;
+                    const step = event.altKey ? 8 : 20;
+                    if (event.key === "ArrowLeft") nudgeStack(stackLayoutKey, stackPosition, -step, 0);
+                    else if (event.key === "ArrowRight") nudgeStack(stackLayoutKey, stackPosition, step, 0);
+                    else if (event.key === "ArrowUp") nudgeStack(stackLayoutKey, stackPosition, 0, -step);
+                    else if (event.key === "ArrowDown") nudgeStack(stackLayoutKey, stackPosition, 0, step);
+                    else return;
+                    event.preventDefault();
+                  }}
                   type="button"
                 >
                   <span>{stack.label}</span>
                   <strong>{stack.papers.length} {stack.papers.length === 1 ? "paper" : "papers"}</strong>
-                  <small>{stackKind} · open stack · front {cursor + 1} of {stack.papers.length}</small>
+                  <small>{stackKind} · drag to arrange · click to open · {cursor + 1} of {stack.papers.length}</small>
                 </button>
 
                 <div
@@ -1659,7 +1755,10 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     aria-label={`${paper.title}, ${paper.authorLabel}, ${paper.year}. ${cursor + 1} of ${stack.papers.length} in ${stack.label}.`}
                     className={`research-paper-card research-stack-front-card research-desk-item ${paper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${paper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === paper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === paper.id ? "research-paper-sticky-target" : ""}`}
                     data-research-paper-id={paper.id}
-                    onClick={() => selectPaper(paper, stack)}
+                    onClick={() => {
+                      if (stackClickWasDrag(stackLayoutKey)) return;
+                      selectPaper(paper, stack);
+                    }}
                     onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper })}
                     onDoubleClick={(event) => {
                       event.stopPropagation();
@@ -1773,9 +1872,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 startEditingIdea(idea);
               }}
               onLostPointerCapture={() => {
-                if (dragRef.current?.key === key) cancelIdeaDrag();
+                if (dragRef.current?.key === key) cancelDeskItemDrag();
               }}
-              onPointerCancel={() => cancelIdeaDrag()}
+              onPointerCancel={() => cancelDeskItemDrag()}
               onPointerDown={(event) => {
                 setSelection({ kind: "idea", path: idea.path });
                 beginDrag(event, key);

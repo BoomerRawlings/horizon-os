@@ -2925,10 +2925,21 @@ input:focus-visible {
 
 .research-paper-stack {
   position: relative;
+  left: var(--stack-offset-x, 0px);
+  top: var(--stack-offset-y, 0px);
   min-width: 0;
   min-height: 216px;
   opacity: 0;
+  touch-action: none;
+  user-select: none;
   animation: research-paper-stack-in 260ms var(--motion-standard-ease) var(--stack-delay, 0ms) forwards;
+  transition: left 180ms cubic-bezier(0.2, 0.75, 0.25, 1), top 180ms cubic-bezier(0.2, 0.75, 0.25, 1), filter 120ms ease;
+}
+
+.research-paper-stack-dragging {
+  opacity: 1;
+  filter: brightness(1.035);
+  transition: none;
 }
 
 .research-desk-gathering .research-paper-stack {
@@ -2956,7 +2967,8 @@ input:focus-visible {
   background: transparent;
   padding: 0 0.24rem 0.42rem;
   color: rgba(221, 235, 232, 0.82);
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
   text-align: left;
 }
 
@@ -3778,9 +3790,14 @@ input:focus-visible {
   top: 50%;
   z-index: 20;
   width: min(calc(100% - 1rem), 205px);
-  cursor: pointer;
+  cursor: grab;
   transform: translate(-50%, -50%);
   transition: transform 180ms cubic-bezier(0.2, 0.75, 0.25, 1), box-shadow 180ms ease, filter 180ms ease;
+}
+
+.research-paper-stack-dragging .research-paper-stack-heading,
+.research-paper-stack-dragging .research-stack-front-card {
+  cursor: grabbing;
 }
 
 .research-paper-stack:hover .research-stack-front-card,
