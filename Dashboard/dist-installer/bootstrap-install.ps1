@@ -14,6 +14,7 @@
 param(
   [string]$InstallRoot = "",
   [switch]$SkipHelpers,
+  [switch]$SkipDependencies,
   [switch]$SkipShortcuts,
   [switch]$SkipLaunch,
   [switch]$NonInteractive
@@ -28,11 +29,47 @@ function Pause-IfInteractive {
   if (-not $NonInteractive) { Read-Host "Press Enter to close" | Out-Null }
 }
 function Invoke-InstallerGit([string[]]$Arguments) {
-  $output = & git @Arguments 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  # Windows PowerShell turns ordinary native stderr (including successful Git fetch
+  # progress) into an error record when ErrorActionPreference is Stop. Capture it
+  # with native-command error handling relaxed, then trust Git's exit code.
+  $previousErrorAction = $ErrorActionPreference
+  $output = @()
+  $exitCode = 1
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = @(& git @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+  if ($exitCode -ne 0) {
     throw "git $($Arguments -join ' ') failed: $($output -join ' ')"
   }
   return $output
+}
+function Test-InstallerGit([string[]]$Arguments) {
+  $previousErrorAction = $ErrorActionPreference
+  $exitCode = 1
+  try {
+    $ErrorActionPreference = "SilentlyContinue"
+    & git @Arguments 1>$null 2>$null
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+  return $exitCode -eq 0
+}
+function Remove-ManagedGitMetadata([string]$Target) {
+  $targetFull = [System.IO.Path]::GetFullPath($Target)
+  $gitPath = Join-Path $targetFull ".git"
+  $expected = [System.IO.Path]::GetFullPath((Join-Path $targetFull ".git"))
+  $actual = [System.IO.Path]::GetFullPath($gitPath)
+  if (-not $actual.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to repair Git metadata outside the Horizon application folder."
+  }
+  if (Test-Path -LiteralPath $gitPath) {
+    Remove-Item -LiteralPath $gitPath -Recurse -Force
+  }
 }
 
 $bundle = $PSScriptRoot
@@ -54,9 +91,14 @@ Write-Host ""
 # --- 1. Use a stable per-user application location -------------------------------------------
 # Vault data is deliberately NOT installed here. Horizon stores the selected synced-vault
 # path in %APPDATA%\Horizon and reads the vault in place.
-$target = if ($InstallRoot) { [System.IO.Path]::GetFullPath($InstallRoot) } else { Join-Path $env:LOCALAPPDATA "HorizonOS" }
+$defaultTarget = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "HorizonOS"))
+$target = if ($InstallRoot) { [System.IO.Path]::GetFullPath($InstallRoot) } else { $defaultTarget }
+$targetHadContent = (Test-Path -LiteralPath $target) -and @((Get-ChildItem -LiteralPath $target -Force -ErrorAction SilentlyContinue)).Count -gt 0
+$targetIsDefault = $target.Equals($defaultTarget, [System.StringComparison]::OrdinalIgnoreCase)
 
 $targetDashboard = Join-Path $target "Dashboard"
+$installMarker = Join-Path $targetDashboard "native-dist\.horizon-app-only"
+$mayManageUpdateCheckout = $targetIsDefault -or -not $targetHadContent -or (Test-Path -LiteralPath $installMarker)
 $targetApp = Join-Path $targetDashboard "native-dist\win-unpacked\Horizon.exe"
 $targetBuildInfo = Join-Path $targetDashboard "native-dist\win-unpacked\resources\app\dist\build-info.json"
 $targetPackage = Join-Path $targetDashboard "native-dist\win-unpacked\resources\app\package.json"
@@ -104,6 +146,9 @@ if ($LASTEXITCODE -ge 8) {
   Pause-IfInteractive
   exit 1
 }
+if ($mayManageUpdateCheckout) {
+  [System.IO.File]::WriteAllText($installMarker, "Horizon app-only installation`r`n", [System.Text.UTF8Encoding]::new($false))
+}
 Say "    Done." "Green"
 
 # --- 3. Dependencies (Node + Git) for automatic updates -------------------------------------
@@ -141,17 +186,27 @@ if ($SkipHelpers) {
 }
 
 # --- 4. Prepare dependencies for the updater (best effort) ----------------------------------
-if ($haveNode) {
+if ($haveNode -and -not $SkipDependencies) {
   Step "Preparing update dependencies (this can take a minute)"
   Push-Location $targetDashboard
   try {
-    & npm ci --no-audit --no-fund 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) { Say "    Ready." "Green" } else { Warn "Dependency setup did not finish; updates will retry later." }
+    $previousErrorAction = $ErrorActionPreference
+    $npmExitCode = 1
+    try {
+      $ErrorActionPreference = "Continue"
+      & npm ci --no-audit --no-fund 2>&1 | Out-Null
+      $npmExitCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($npmExitCode -eq 0) { Say "    Ready." "Green" } else { Warn "Dependency setup did not finish; updates will retry later." }
   } catch {
     Warn "Could not prepare update dependencies now; the updater will retry later."
   } finally {
     Pop-Location
   }
+} elseif ($haveNode -and $SkipDependencies) {
+  Say "    Skipping dependency setup for installer verification." "DarkGray"
 }
 
 # --- 5. Optional: wire up automatic updates from a distribution repo -------------------------
@@ -169,13 +224,35 @@ if (Test-Path -LiteralPath $configPath) {
   }
 }
 
-if ($haveGit -and $updateRepoUrl -and -not (Test-Path -LiteralPath (Join-Path $target ".git"))) {
+if ($haveGit -and $updateRepoUrl -and $mayManageUpdateCheckout) {
   Step "Connecting automatic updates"
+  $gitPath = Join-Path $target ".git"
+  $checkoutWasHealthy = $false
+  if (Test-Path -LiteralPath $gitPath) {
+    Push-Location $target
+    try {
+      $checkoutWasHealthy = (Test-InstallerGit @("rev-parse", "--is-inside-work-tree")) -and
+        (Test-InstallerGit @("rev-parse", "--verify", "HEAD"))
+    } finally {
+      Pop-Location
+    }
+  }
+  if ((Test-Path -LiteralPath $gitPath) -and -not $checkoutWasHealthy) {
+    Warn "The previous update checkout is incomplete. Repairing it now."
+    Remove-ManagedGitMetadata $target
+  }
+  $createdFreshCheckout = -not (Test-Path -LiteralPath $gitPath)
   Push-Location $target
   try {
-    Invoke-InstallerGit @("init", "-b", $updateBranch) | Out-Null
-    Invoke-InstallerGit @("remote", "add", "origin", $updateRepoUrl) | Out-Null
-    Invoke-InstallerGit @("fetch", "--depth", "50", "origin", $updateBranch) | Out-Null
+    if ($createdFreshCheckout) {
+      Invoke-InstallerGit @("init", "-b", $updateBranch) | Out-Null
+    }
+    if (Test-InstallerGit @("remote", "get-url", "origin")) {
+      Invoke-InstallerGit @("remote", "set-url", "origin", $updateRepoUrl) | Out-Null
+    } else {
+      Invoke-InstallerGit @("remote", "add", "origin", $updateRepoUrl) | Out-Null
+    }
+    Invoke-InstallerGit @("fetch", "--force", "--depth", "50", "origin", $updateBranch) | Out-Null
 
     # Track only app code. Even if the public source grows other top-level content later,
     # the updater will never pull it beside the app or mistake it for the user's vault.
@@ -183,9 +260,8 @@ if ($haveGit -and $updateRepoUrl -and -not (Test-Path -LiteralPath (Join-Path $t
     Invoke-InstallerGit @("sparse-checkout", "set", "--no-cone", "/Dashboard/", "/.gitignore") | Out-Null
 
     $installRef = "FETCH_HEAD"
-    if ($buildCommit) {
-      & git cat-file -e "$buildCommit`^{commit}" 2>$null
-      if ($LASTEXITCODE -eq 0) { $installRef = $buildCommit }
+    if ($buildCommit -and (Test-InstallerGit @("cat-file", "-e", "$buildCommit`^{commit}"))) {
+      $installRef = $buildCommit
     }
 
     # This is a fresh, fixed app-only folder. Align its tracked source with the exact commit
@@ -193,12 +269,24 @@ if ($haveGit -and $updateRepoUrl -and -not (Test-Path -LiteralPath (Join-Path $t
     Invoke-InstallerGit @("reset", "--hard", $installRef) | Out-Null
     Invoke-InstallerGit @("checkout", "-B", $updateBranch, $installRef) | Out-Null
     Invoke-InstallerGit @("branch", "--set-upstream-to", "origin/$updateBranch", $updateBranch) | Out-Null
+    if (-not (Test-InstallerGit @("rev-parse", "--verify", "HEAD")) -or
+        -not (Test-InstallerGit @("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"))) {
+      throw "The update checkout did not pass its final verification."
+    }
     Say "    Auto-updates connected to $updateRepoUrl ($updateBranch)." "Green"
   } catch {
-    Warn "Auto-update wiring did not complete. Horizon still works; you can set it up later."
+    $wiringError = $_.Exception.Message
+    if ($createdFreshCheckout -and (Test-Path -LiteralPath $gitPath)) {
+      Remove-ManagedGitMetadata $target
+    }
+    Warn "Auto-update wiring did not complete: $wiringError"
+    Warn "No incomplete update checkout was kept. Re-run this installer when the connection is available."
   } finally {
     Pop-Location
   }
+} elseif ($haveGit -and $updateRepoUrl -and -not $mayManageUpdateCheckout) {
+  Warn "This custom destination already contains other files, so its Git checkout was left untouched."
+  Warn "Use the default Horizon install folder to enable automatic updates safely."
 } elseif (-not $updateRepoUrl) {
   Warn "No update source configured (distribution.json > updateRepoUrl is empty)."
   Warn "Horizon works fully; to enable hands-off updates later, set that value and re-run this installer."

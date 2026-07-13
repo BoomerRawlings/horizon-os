@@ -55,9 +55,9 @@ async function waitForHealth(tries = 40) {
 
 const health = await waitForHealth();
 if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
-if (health.version !== "0.2.6") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
+if (health.version !== "0.2.7") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
-ok("/api/health identifies Horizon 0.2.6 and its ready active vault");
+ok("/api/health identifies Horizon 0.2.7 and its ready active vault");
 
 const updateResponse = await fetch(`${BASE}/api/update/check`);
 const update = await updateResponse.json();

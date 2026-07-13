@@ -9,8 +9,9 @@ $installer = Join-Path $bundle "Install-Horizon.ps1"
 $payload = Join-Path $bundle "HorizonOS"
 $installRoot = Join-Path $testRoot "installed"
 $badInstallRoot = Join-Path $testRoot "mismatch"
-$commit = "1111111111111111111111111111111111111111"
-$version = "0.2.5"
+$sourceRepo = Join-Path $testRoot "source-repo"
+$remoteRepo = Join-Path $testRoot "remote.git"
+$version = [string]((Get-Content -Raw -LiteralPath (Join-Path $dashboardRoot "package.json") | ConvertFrom-Json).version)
 $renderer = "assets/index-recovery.js"
 
 function Write-Utf8([string]$Path, [string]$Content) {
@@ -20,14 +21,57 @@ function Write-Utf8([string]$Path, [string]$Content) {
 }
 
 function Invoke-TestInstaller([string]$Destination) {
-  $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
-    -InstallRoot $Destination -SkipHelpers -SkipShortcuts -SkipLaunch -NonInteractive 2>&1
-  return @{ ExitCode = $LASTEXITCODE; Output = @($output) }
+  $previousErrorAction = $ErrorActionPreference
+  $output = @()
+  $exitCode = 1
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+      -InstallRoot $Destination -SkipDependencies -SkipShortcuts -SkipLaunch -NonInteractive 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+  return @{ ExitCode = $exitCode; Output = $output }
+}
+
+function Invoke-TestGit([string[]]$Arguments) {
+  $previousErrorAction = $ErrorActionPreference
+  $output = @()
+  $exitCode = 1
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = @(& git @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
+  if ($exitCode -ne 0) {
+    throw "git $($Arguments -join ' ') failed: $($output -join ' ')"
+  }
+  return @($output | ForEach-Object { [string]$_ })
 }
 
 try {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw "Git is required for the installer recovery test."
+  }
+
+  New-Item -ItemType Directory -Path $sourceRepo -Force | Out-Null
+  Write-Utf8 (Join-Path $sourceRepo ".gitignore") "Dashboard/native-dist/`r`nDashboard/node_modules/`r`n"
+  Write-Utf8 (Join-Path $sourceRepo "Dashboard\package.json") ((@{ name = "horizon-installer-fixture"; version = $version } | ConvertTo-Json))
+  Write-Utf8 (Join-Path $sourceRepo "Dashboard\README.md") "Installer recovery fixture`r`n"
+  Invoke-TestGit @("-C", $sourceRepo, "init", "-b", "main") | Out-Null
+  Invoke-TestGit @("-C", $sourceRepo, "config", "user.name", "Horizon Installer Test") | Out-Null
+  Invoke-TestGit @("-C", $sourceRepo, "config", "user.email", "installer-test@localhost") | Out-Null
+  Invoke-TestGit @("-C", $sourceRepo, "add", ".") | Out-Null
+  Invoke-TestGit @("-C", $sourceRepo, "commit", "-m", "Fixture") | Out-Null
+  $commit = ([string](Invoke-TestGit @("-C", $sourceRepo, "rev-parse", "HEAD") | Select-Object -Last 1)).Trim()
+  Invoke-TestGit @("clone", "--bare", $sourceRepo, $remoteRepo) | Out-Null
+
   New-Item -ItemType Directory -Path $bundle -Force | Out-Null
   [System.IO.File]::Copy($installerSource, $installer)
+  Write-Utf8 (Join-Path $payload "Dashboard\package.json") ((@{ name = "horizon-installer-fixture"; version = $version } | ConvertTo-Json))
   $native = Join-Path $payload "Dashboard\native-dist\win-unpacked"
   Write-Utf8 (Join-Path $native "Horizon.exe") "test executable"
   Write-Utf8 (Join-Path $native "resources\app\package.json") ((@{ version = $version } | ConvertTo-Json))
@@ -41,7 +85,7 @@ try {
   Write-Utf8 (Join-Path $bundle "distribution.json") ((@{
     buildCommit = $commit
     updateBranch = "main"
-    updateRepoUrl = ""
+    updateRepoUrl = $remoteRepo
   } | ConvertTo-Json))
 
   $oldNative = Join-Path $installRoot "Dashboard\native-dist\win-unpacked"
@@ -49,6 +93,10 @@ try {
   Write-Utf8 (Join-Path $oldNative "resources\app\package.json") '{"version":"0.2.2"}'
   Write-Utf8 (Join-Path $oldNative "resources\app\dist\assets\index-old.js") "old renderer"
   Write-Utf8 (Join-Path $oldNative "resources\app\dist\build-info.json") '{"commit":"0000000000000000000000000000000000000000","dirty":false,"renderer":"assets/index-old.js","version":"0.2.2"}'
+  Write-Utf8 (Join-Path $installRoot "Dashboard\native-dist\.horizon-app-only") "Horizon app-only installation`r`n"
+
+  # Reproduce the laptop failure: a .git folder with an unborn HEAD was left behind.
+  Write-Utf8 (Join-Path $installRoot ".git\HEAD") "ref: refs/heads/main`r`n"
 
   $success = Invoke-TestInstaller $installRoot
   if ($success.ExitCode -ne 0) {
@@ -66,11 +114,23 @@ try {
   if (Test-Path -LiteralPath (Join-Path $installedDist "assets\index-old.js")) {
     throw "The stale renderer survived the repair install."
   }
+  $installedHead = ([string](Invoke-TestGit @("-C", $installRoot, "rev-parse", "HEAD") | Select-Object -Last 1)).Trim()
+  $installedUpstream = ([string](Invoke-TestGit @("-C", $installRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") | Select-Object -Last 1)).Trim()
+  $installedOrigin = ([string](Invoke-TestGit @("-C", $installRoot, "remote", "get-url", "origin") | Select-Object -Last 1)).Trim()
+  if ($installedHead -ne $commit) {
+    throw "The repaired update checkout is not pinned to the packaged build."
+  }
+  if ($installedUpstream -ne "origin/main") {
+    throw "The repaired update checkout has no usable upstream."
+  }
+  if ([System.IO.Path]::GetFullPath($installedOrigin) -ne [System.IO.Path]::GetFullPath($remoteRepo)) {
+    throw "The repaired update checkout points at the wrong source."
+  }
 
   Write-Utf8 (Join-Path $bundle "distribution.json") ((@{
     buildCommit = "2222222222222222222222222222222222222222"
     updateBranch = "main"
-    updateRepoUrl = ""
+    updateRepoUrl = $remoteRepo
   } | ConvertTo-Json))
   $mismatch = Invoke-TestInstaller $badInstallRoot
   if ($mismatch.ExitCode -eq 0) {
