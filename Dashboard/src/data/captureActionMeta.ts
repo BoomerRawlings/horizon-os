@@ -1,4 +1,4 @@
-// Single source of truth for capture action DISPLAY metadata on the client (PHASE-04).
+// Client display metadata for registered capture actions.
 // The server registry (Dashboard/server/captureActions.cjs) is authoritative; this
 // module only fetches it and provides an offline fallback (same trick as
 // defaultIntegrationConnections in data/profile.ts). Adding a new action to the server
@@ -18,9 +18,8 @@ export type CaptureActionMeta = {
   clientOnly: boolean;
 };
 
-// OFFLINE FALLBACK ONLY. The live source of truth is GET /api/capture/actions
-// (Dashboard/server/captureActions.cjs). Content copied verbatim from that registry
-// as of PHASE-03 (commit 250f735) so the dev/offline experience matches production.
+// Offline fallback. The live source of truth is GET /api/capture/actions in
+// Dashboard/server/captureActions.cjs.
 export const FALLBACK_ACTION_META: CaptureActionMeta[] = [
   {
     id: "create_calendar_item",

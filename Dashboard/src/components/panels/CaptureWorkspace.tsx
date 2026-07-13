@@ -104,7 +104,7 @@ type CaptureUndoResult = {
   removed?: string[];
 };
 
-// PHASE-11: one applied action within a multi-apply session. Each carries its OWN undo
+// One applied action within a multi-apply session. Each carries its own undo
 // token so actions can be undone independently.
 type AppliedRecord = {
   actionId: string;
@@ -145,10 +145,10 @@ const textareaClass =
   "min-h-[92px] w-full resize-none rounded-lg border border-white/10 bg-slate-950/45 px-3 py-2 text-sm leading-relaxed text-slate-100 outline-none transition duration-300 placeholder:text-slate-600 focus:border-[rgba(var(--accent-rgb),0.55)] focus:bg-slate-950/60";
 
 // Label/plan/permission/boundary text now comes from the capture action registry
-// (GET /api/capture/actions, server/captureActions.cjs - PHASE-03/04). These helpers
+// (GET /api/capture/actions, server/captureActions.cjs). These helpers
 // take the fetched `meta` array so a new server-registered action renders correctly
 // with zero changes here. actionSubtitle/actionIcon stay client-side presentation logic
-// (per-payload formatting / icon choice) - see PHASE-04's card for why.
+// for per-payload formatting and icon choice.
 function reviewLabel(meta: CaptureActionMeta[], type: string) {
   return metaById(meta, type).reviewLabel;
 }
@@ -334,7 +334,7 @@ function currentStep(
   if (status === "error") return 1;
   if (status === "thinking") return 1;
   if (status === "applying") return 3;
-  if (appliedCount > 0) return 4; // PHASE-11: "Saved" once any action has been applied
+  if (appliedCount > 0) return 4; // "Saved" once any action has been applied
   if (draftAction) return 2;
   if (status === "ready" && triage?.actions?.length) return 2;
   if (status === "ready") return 1;
@@ -432,7 +432,7 @@ export function CaptureWorkspace({
   const [undoing, setUndoing] = useState(false);
   const [actionMeta, setActionMeta] = useState<CaptureActionMeta[]>(FALLBACK_ACTION_META);
   const [projectOptions, setProjectOptions] = useState<VaultProjectRecord[]>([]);
-  // PHASE-11: one capture can apply MULTIPLE suggested actions (no more "pick one, lose
+  // One capture can apply multiple suggested actions (no more "pick one, lose
   // the rest"). Each successful apply is recorded here with its own undo token, and the
   // triage list stays open instead of going terminal.
   const [appliedActions, setAppliedActions] = useState<AppliedRecord[]>([]);
@@ -633,7 +633,7 @@ export function CaptureWorkspace({
     }
   }
 
-  // PHASE-11: record a successful apply and return to the triage list (non-terminal) so
+  // Record a successful apply and return to the triage list so
   // the remaining suggestions can still be applied. Each record keeps its own undo token.
   function recordApplied(action: CaptureAction, nextResult: CaptureApplyResult) {
     setAppliedActions((prev) => [
@@ -710,7 +710,7 @@ export function CaptureWorkspace({
     }
   }
 
-  // PHASE-11: apply every remaining (not-yet-applied) suggestion sequentially. Each still
+  // Apply every remaining suggestion sequentially. Each still
   // goes through the same /api/capture/apply write and is independently undoable; the plan
   // for each is visible on its list card, so approve-before-act holds. Sequential (not
   // parallel) so two calendar writes never race the same RCF read/write cycle.

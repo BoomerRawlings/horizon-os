@@ -129,7 +129,7 @@ export function App() {
   const [captureFocusKey, setCaptureFocusKey] = useState(0);
   const [captureQueueRefreshKey, setCaptureQueueRefreshKey] = useState(0);
   const [queuedCaptureSource, setQueuedCaptureSource] = useState<Pick<CaptureQueueItem, "id" | "path" | "title"> | null>(null);
-  // PHASE-05: the capture motion-layer hosts EITHER the single-capture workspace or the
+  // The capture motion-layer hosts either the single-capture workspace or the
   // batch sweep. captureMode picks which; no new screen/route/transition is introduced.
   const [captureMode, setCaptureMode] = useState<"single" | "sweep">("single");
   const [sweepRefreshKey, setSweepRefreshKey] = useState(0);
@@ -182,7 +182,7 @@ export function App() {
     () => calendar.items.filter((item) => item.issues.length > 0).length,
     [calendar.items],
   );
-  // PHASE-10: live count of captures waiting to triage (the pile the sweep opens). Refetched
+  // Live count of captures waiting to triage. Refetched
   // whenever the capture queue changes (apply/sweep/delete bump captureQueueRefreshKey).
   const [triageCount, setTriageCount] = useState(0);
   const focusStatusLabel = focusTimer.isRunning
@@ -423,7 +423,7 @@ export function App() {
     window.setTimeout(() => setCaptureAutoRunKey((current) => current + 1), 120);
   }
 
-  // PHASE-05: open the batch sweep inside the capture layer.
+  // Open the batch sweep inside the capture layer.
   function openSweep() {
     captureReturnDraftRef.current = captureText;
     setCaptureMode("sweep");

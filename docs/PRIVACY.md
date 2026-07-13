@@ -1,26 +1,28 @@
 # Privacy and credentials
 
-Horizon is local-first, but local-first does not mean every optional integration is risk-free. This document describes the current preview honestly.
+## Vault data
 
-## Data that stays in the vault
+Calendar items, captures, projects, research notes, and workflow logs stay in the selected Obsidian vault. The Horizon application is installed separately.
 
-Calendar items, captures, project records, research notes, and workflow logs remain in the selected Obsidian vault. Horizon's installed app directory is separate from that vault.
+Horizon's local server listens on `127.0.0.1`. The app does not include analytics or telemetry.
 
-The local server binds to `127.0.0.1`; it is not intended to accept connections from other devices. Horizon does not include an analytics or telemetry client.
+## Credentials and settings
 
-## Credentials
+Integration tokens, API keys, and the saved vault path are stored in Horizon's application-data folder. They are not saved in the vault, committed to Git, or included in an installer.
 
-OAuth tokens and manually entered API keys are written to Horizon's local app-data folder and are excluded from the vault, Git, installer bundles, and redacted settings summaries.
+- Windows: `%APPDATA%\Horizon`
+- macOS: `~/Library/Application Support/Horizon`
 
-The selected vault path is also machine-local (`vault-connection.json`). It is not synchronized through Obsidian and is not written into the vault.
+Manually entered API keys are currently stored in a local JSON file, not Windows Credential Manager or macOS Keychain. Use limited-purpose credentials and restrict their permissions.
 
-Current limitation: manually entered API keys are stored in a local JSON file and are not protected by Windows Credential Manager or macOS Keychain yet. Use limited-purpose credentials, restrict scopes, and rotate a key if the machine or account may be compromised.
+Google OAuth client settings may also be read from the vault's ignored `00_System/local/Horizon/credentials/` folder. Keep that path out of Git.
 
-- Windows app data: `%APPDATA%\Horizon`
-- macOS app data: `~/Library/Application Support/Horizon`
+## Before publishing a build
 
-Google OAuth client configuration may also be loaded from the vault's ignored `00_System/local/Horizon/credentials/` folder. Never remove that path from `.gitignore`.
+From `Dashboard/`, run:
 
-## Before sharing a fork or release
+```bash
+node scripts/privacy-scan.mjs
+```
 
-Run `node scripts/privacy-scan.mjs` from `Dashboard/`, inspect `git status`, and confirm that the release contains `HorizonOS/Dashboard` only. The Windows distribution builder exits if Calendar, Inbox, Runs, Project Registry, Research Papers, or local Horizon state is staged in the bundle.
+Check `git status` and confirm that the installer contains `HorizonOS/Dashboard` only. The Windows distribution builder stops if vault folders are staged beside the application.

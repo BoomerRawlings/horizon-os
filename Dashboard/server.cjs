@@ -6,7 +6,7 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 
-// Single source of truth for capture action definitions (PHASE-03).
+// Single source of truth for capture action definitions.
 const {
   CAPTURE_TRIAGE_ACTION_TYPES,
   captureActionById,
@@ -14,7 +14,7 @@ const {
   captureActionMetadata,
   captureTriageHints,
 } = require("./server/captureActions.cjs");
-// PHASE-08: deterministic local pre-triage (zero AI, zero network).
+// Deterministic local pre-triage.
 const { applyCourseworkDeadlineDefault, heuristicActions } = require("./server/captureHeuristics.cjs");
 const { currentLocalIsoDate } = require("./server/currentDate.cjs");
 const {
@@ -349,7 +349,7 @@ const LAUNCH_ACTIONS = {
     label: "Google Scholar",
     kind: "web_url",
     target: "https://scholar.google.com/scholar",
-    // PHASE-12: "start researching" can prefill the search with a research idea's topic.
+    // "Start researching" can prefill the search with a research idea's topic.
     searchParam: "q",
   },
   "research.notes": {
@@ -760,7 +760,7 @@ async function launchAction(actionId, options = {}) {
   }
 
   if (action.kind === "web_url") {
-    // PHASE-12: a web_url action with searchParam can be opened prefilled with a query
+    // A web_url action with searchParam can be opened prefilled with a query
     // (e.g. Google Scholar for a research idea's topic). Built from the trusted base URL.
     let target = action.target;
     const query = String(options.query || "").trim();
@@ -2431,7 +2431,7 @@ function deleteIncomingCaptureQueueFile(id) {
   };
 }
 
-// ---- PHASE-05 sweep-the-pile: read + resolve the unhandled capture pile --------------
+// ---- Read and resolve the unhandled capture pile -------------------------------------
 // The "pile" the owner sweeps has two real sources, both unhandled captures:
 //   to_triage: Inbox/To Triage/*.md   - phone/synced notes dropped by Obsidian Sync
 //              (already enumerated by listIncomingCaptureQueue; the body IS the text).
@@ -2723,7 +2723,7 @@ function createCapture(payload) {
   return writeCapturePacket({ ...payload, status: "pending_codex" }, { kind: payload.kind || "note", queue: true });
 }
 
-// CAPTURE_TRIAGE_ACTION_TYPES now comes from server/captureActions.cjs (PHASE-03).
+// CAPTURE_TRIAGE_ACTION_TYPES comes from server/captureActions.cjs.
 const CAPTURE_TRIAGE_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -3047,7 +3047,7 @@ function normalizeCaptureAction(action, sourceText = "") {
   return applyCourseworkDeadlineDefault(normalizeActionConnections(normalized, sourceText), sourceText);
 }
 
-// ── PHASE-08: heuristics-first triage orchestrator ────────────────────────────────────
+// ── Heuristics-first triage orchestrator ───────────────────────────────────────────────
 // Runs the deterministic local heuristics ALWAYS, then the AI (when configured) to refine,
 // then merges. Result: the pile shows useful buttons instantly even with no AI key, and
 // the AI enriches rather than gatekeeps. This replaces the raw triageCaptureWithAi call at
@@ -3167,7 +3167,7 @@ function rcfItemFileName(fields) {
   return `${date}${time ? `__${time}` : ""}__${category}__${title}.md`;
 }
 
-// captureActionPlan now comes from server/captureActions.cjs (PHASE-03).
+// captureActionPlan comes from server/captureActions.cjs.
 
 function writeInboxNote(title, sections, prefix = "capture") {
   fs.mkdirSync(path.join(ROOT, "Inbox"), { recursive: true });
@@ -3370,7 +3370,7 @@ async function applyResearchPaperCaptureAction(action, capture, text) {
   return { relPath: vaultRelative(filePath), citekey: finalCitekey };
 }
 
-// PHASE-12: a research IDEA is a topic/question to explore later - distinct from a citable
+// A research idea is a topic or question to explore later, distinct from a citable
 // paper (Author-YYYY.md). Kept in a sibling Research Papers/Ideas/ folder, own note type.
 function applyResearchIdeaCaptureAction(action, capture, text) {
   const dir = path.join(ROOT, "Research Papers", "Ideas");
@@ -3466,7 +3466,7 @@ function createResearchDeskIdea(payload) {
   };
 }
 
-// Small generic frontmatter reader for Research Papers/*.md (PHASE-07 Saved Papers v1).
+// Small generic frontmatter reader for Research Papers/*.md.
 // Not the RCF parser (parseItemContent) - that one is fixed to FIELD_ORDER; this is a
 // permissive key:value reader for whatever a research note's frontmatter happens to have.
 function readMarkdownFrontmatter(raw) {
@@ -4511,7 +4511,7 @@ function copyResearchTextToClipboard(value) {
   return !result.error && result.status === 0;
 }
 
-// PHASE-09 projects bridge: vault Project Registry/*.md is the human-maintained source
+// Vault Project Registry/*.md is the maintained source
 // of truth (see Project Registry/index.md convention). Cached on directory+file mtime so
 // a dropped note appears on next read without a server restart.
 const PROJECT_REGISTRY_DIR = path.join(ROOT, "Project Registry");
@@ -4542,8 +4542,7 @@ function listProjectRegistry({ includeAll = false } = {}) {
         const raw = fs.readFileSync(filePath, "utf8");
         const fields = readMarkdownFrontmatter(raw);
         const id = path.basename(name, ".md");
-        // PHASE-13: count of capture bullets under "## Captures" (attach_to_project writes
-        // them, PHASE-09) so the Projects workspace can show attached-capture activity.
+        // Count capture bullets under "## Captures" so Projects can show attached activity.
         const capturesSection = raw.split(/^## Captures\s*$/m)[1] || "";
         const capturesBlock = capturesSection.split(/^## /m)[0] || "";
         const captures = (capturesBlock.match(/^- /gm) || []).length;
@@ -4625,8 +4624,7 @@ function updateProjectRegistryStatus(identifier, status) {
 }
 
 // Appends `line` at the end of a `## <heading>` section (before the next heading, or EOF
-// if the section doesn't exist yet). Never rewrites existing content - PHASE-09 STOP rule:
-// vault registry notes are human documents, append surgically only.
+// if the section doesn't exist yet). Existing content is left in place.
 function appendLineToMarkdownSection(raw, heading, line) {
   const lines = raw.split(/\r?\n/);
   const headingLine = `## ${heading}`;
@@ -4874,7 +4872,7 @@ function recordCaptureUndo(action, outputs, refreshCalendar, message) {
 }
 
 // attach_to_project's registry-note append isn't a whole-file undo (the note pre-exists
-// and is a human document - PHASE-09 STOP rule) - kind: "line_patch" undo removes just
+// and is an existing document) - kind: "line_patch" undo removes just
 // the one appended line instead of deleting the file.
 function recordProjectAttachUndo(action, attachResult, message) {
   const token = crypto.randomUUID();
@@ -6096,7 +6094,7 @@ async function handle(req, res) {
       return;
     }
     if (req.method === "POST" && url.pathname === "/api/projects/open") {
-      // PHASE-13: open a project's workspace folder. The location is looked up SERVER-side
+      // Open a project's workspace folder. The location is looked up server-side
       // from the owner's own Project Registry note (by id) — a client can never pass an
       // arbitrary path here, so the trust boundary is "folders the owner wrote down".
       const payload = await readBody(req);

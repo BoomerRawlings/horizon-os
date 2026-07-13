@@ -2,7 +2,7 @@
 
 Horizon ships as an app-only installer. A vault is never bundled, copied, merged, or used as the application's update checkout.
 
-## Build the Windows handoff
+## Build the Windows installer
 
 From `Dashboard/`:
 
@@ -11,7 +11,7 @@ npm run native:pack:safe
 npm run make:dist
 ```
 
-The builder writes `Horizon-Setup-<version>.zip` to the Desktop. The recipient extracts the entire ZIP and runs `Install Horizon.cmd`.
+The builder writes `Horizon-Setup-<version>.zip` to the Desktop. Extract the entire ZIP, then run `Install Horizon.cmd`.
 
 The ZIP contains:
 
@@ -27,24 +27,24 @@ HorizonOS/
 
 It does not contain Calendar, Inbox, Runs, Project Registry, Research Papers, `.obsidian`, credentials, or machine-local Horizon state. The builder exits if anything is staged beside `HorizonOS/Dashboard`.
 
-## Laptop handoff
+## Install on another computer
 
-1. Install Obsidian and allow Obsidian Sync to finish downloading the existing vault.
+1. In Obsidian, connect the remote vault and wait until its local vault is fully synced.
 2. Run the Horizon installer.
 3. On first launch, select the synced vault's top-level folder.
 4. Connect machine-specific integrations.
 
-The vault path is stored in Horizon's private application-data directory. Horizon validates the folder before starting and confirms that the local server is using that exact vault.
+The vault path is stored in Horizon's application-data directory. Horizon checks the folder before starting and confirms that the local server is using that vault.
 
 ## Updates
 
-`distribution.json` points to the public, code-only repository. During packaging, the builder stamps the current branch and commit into the bundled copy of that file. The installer creates a sparse app-only checkout, so update operations can see only `Dashboard/` and cannot touch the selected vault.
+`distribution.json` points to the public repository. During packaging, the builder saves the current branch and commit in the bundled copy of that file. The installer creates an app-only checkout, so updates cannot touch the selected vault.
 
 Node.js and Git are update helpers only. The prebuilt application can launch without them.
 
 ## macOS path
 
-The same vault-selection and machine-local connection code is cross-platform. Build the Mac artifacts on macOS from `Dashboard/` with:
+The vault connection works on macOS. Build the Mac files on a Mac from `Dashboard/` with:
 
 ```bash
 npm ci

@@ -1,35 +1,52 @@
-# Windows installation
+# Install Horizon on Windows
 
-## Recommended: install a release
+## Before installing Horizon
 
-1. Install Obsidian and allow Obsidian Sync to finish downloading the existing vault.
-2. Open the vault once in Obsidian and confirm the expected notes are present.
-3. Open the [latest release](https://github.com/BoomerRawlings/horizon-os/releases/latest).
-4. Download `Horizon-Setup-<version>.zip`.
-5. Extract the whole ZIP to a normal folder. Do not run the installer from inside the compressed preview.
-6. Double-click `Install Horizon.cmd`.
-7. When Horizon asks, select the vault's top-level folder.
-8. Connect machine-specific integrations under **Settings > Integrations**.
+Set up the vault in Obsidian first.
 
-The bundle contains a prebuilt app, not a vault. Horizon validates the selected folder and reads it in place. Node.js and Git are optional for basic use; the installer may add them so Horizon can rebuild future source updates.
+1. Install Obsidian.
+2. Open the vault switcher. Under **Open vault from Obsidian Sync**, choose **Setup**.
+3. Sign in and connect the remote vault.
+4. Create its local vault on this computer.
+5. Wait for the green check and **Fully Synced**.
+6. Open the vault and confirm that your notes are present.
 
-## Windows security prompts
+These are Obsidian's terms: the **remote vault** is stored by Obsidian Sync, and the **local vault** is its folder on this computer. Horizon needs the local vault folder. [Obsidian Sync setup](https://obsidian.md/help/sync/setup)
 
-Preview builds are not code-signed yet. Windows may show Microsoft Defender SmartScreen. Confirm that the ZIP came from this repository's Releases page, then choose **More info > Run anyway** if you trust the build. Do not bypass a warning for a file obtained elsewhere.
+If the local vault is already present and fully synced, you can move directly to installation.
 
-## Where things live
+## Install Horizon
 
-- App code: `%LOCALAPPDATA%\HorizonOS`
-- Main executable: `%LOCALAPPDATA%\HorizonOS\Dashboard\native-dist\win-unpacked\Horizon.exe`
-- Vault: the existing folder selected after Obsidian Sync finishes
-- Vault pointer and integration settings: `%APPDATA%\Horizon`
-- Desktop and Start menu shortcuts: created by the installer
+1. Open the [latest Horizon release](https://github.com/BoomerRawlings/horizon-os/releases/latest).
+2. Download `Horizon-Setup-<version>.zip`.
+3. Extract the entire ZIP. Do not run the installer from inside the ZIP preview.
+4. Double-click `Install Horizon.cmd`.
+5. On first launch, choose the local vault's top-level folder.
+6. Open **Settings > Integrations** and connect the services you use.
 
-Obsidian Sync and your own backup plan protect the vault. The app folder can be reinstalled. Credentials in `%APPDATA%\Horizon` must be reconnected or handled separately on each computer.
+Horizon checks for the Horizon vault structure before saving the connection. The correct folder contains `00_Index.md`, `Calendar`, `Inbox`, and `Runs`.
+
+Horizon reads that folder in place. It does not import, copy, merge, move, or replace the vault.
+
+## Windows security prompt
+
+The preview is not code-signed yet, so Windows may show Microsoft Defender SmartScreen. Confirm that the ZIP came from this repository's Releases page. If you trust it, choose **More info > Run anyway**.
+
+## Where Horizon stores things
+
+- Application: `%LOCALAPPDATA%\HorizonOS`
+- Executable: `%LOCALAPPDATA%\HorizonOS\Dashboard\native-dist\win-unpacked\Horizon.exe`
+- Vault: the local vault folder you selected
+- Vault path and integration settings: `%APPDATA%\Horizon`
+- Shortcuts: Desktop and Start menu
+
+The vault path and integration sign-ins are saved only on this computer. Obsidian Sync carries the vault files, not those computer-specific settings.
+
+When using Obsidian Sync, do not put its local vault inside OneDrive, Dropbox, or another sync service. See [Obsidian Sync FAQ](https://obsidian.md/help/sync/faq). Keep a [separate backup](https://obsidian.md/help/backup) as well; sync is not a backup.
 
 ## Build from source
 
-Install Node.js 22+ and Git, then run:
+Install Node.js 22 or newer and Git, then run:
 
 ```powershell
 git clone https://github.com/BoomerRawlings/horizon-os.git
@@ -39,16 +56,16 @@ npm run build
 npm run native:pack:safe
 ```
 
-The packaged executable will be at `Dashboard\native-dist\win-unpacked\Horizon.exe`.
+The packaged app will be in `Dashboard\native-dist\win-unpacked\Horizon.exe`.
 
-To make a clean shareable installer ZIP:
+To create the installer ZIP:
 
 ```powershell
 npm run make:dist
 ```
 
-The ZIP is written to your Desktop and contains only the app. The builder exits if vault folders are staged beside it.
-
 ## Remove Horizon
 
-Close Horizon, remove its shortcuts, then delete `%LOCALAPPDATA%\HorizonOS`. Delete `%APPDATA%\Horizon` only if you also want to remove the saved vault pointer and local integration settings. The selected Obsidian vault is separate and should not be deleted.
+Close Horizon, remove its shortcuts, and delete `%LOCALAPPDATA%\HorizonOS`.
+
+Delete `%APPDATA%\Horizon` only if you also want to remove the saved vault path and local integration settings. Do not delete the Obsidian vault.

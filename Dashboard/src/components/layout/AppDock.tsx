@@ -58,7 +58,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
   const [researchPapersLoading, setResearchPapersLoading] = useState(false);
   const [expandedPaper, setExpandedPaper] = useState<string | null>(null);
   const [copiedCitekey, setCopiedCitekey] = useState<string | null>(null);
-  // PHASE-12: Research Ideas panel (sibling to Saved Papers).
+  // Research Ideas panel, alongside Saved Papers.
   const [researchIdeasOpen, setResearchIdeasOpen] = useState(false);
   const [researchIdeasClosing, setResearchIdeasClosing] = useState(false);
   const [researchIdeas, setResearchIdeas] = useState<ResearchIdea[]>([]);
@@ -87,7 +87,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
     };
   }, [researchPapersOpen]);
 
-  // PHASE-14: Escape closes the Saved Papers panel (with the same animated close).
+  // Escape closes the Saved Papers panel with the same animated close.
   useEffect(() => {
     if (!researchPapersOpen) return undefined;
     function onKey(event: KeyboardEvent) {
@@ -98,7 +98,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [researchPapersOpen, researchPapersClosing]);
 
-  // PHASE-12: Research Ideas panel — fetch on open, Escape to close.
+  // Research Ideas panel — fetch on open, Escape to close.
   useEffect(() => {
     if (!researchIdeasOpen) return;
     let cancelled = false;
@@ -140,7 +140,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
   }
 
   // "Start researching": open Google Scholar prefilled with the idea's topic, and open the
-  // idea note in Obsidian. Deep-links via the PHASE-12 launch searchParam extension.
+  // idea note in Obsidian. Deep-links through the launch searchParam extension.
   async function startResearching(idea: ResearchIdea) {
     showFeedback(`Searching Scholar for "${idea.topic}"...`, "info");
     try {
@@ -159,7 +159,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
     }
   }
 
-  // PHASE-14: animate the panel out before unmounting (matches Project Spotlight's close).
+  // Animate the panel out before unmounting.
   function closeSavedPapers() {
     if (researchPapersClosing) return;
     setResearchPapersClosing(true);
@@ -504,7 +504,7 @@ export function AppDock({ integrations }: { integrations?: IntegrationConnection
         </div>
       ) : null}
 
-      {/* PHASE-12: Research Ideas dashboard — topics/questions to explore later. */}
+      {/* Research ideas — topics and questions to explore later. */}
       {researchIdeasOpen ? (
         <div className="fixed inset-0 z-[60] grid place-items-center p-6">
           <button

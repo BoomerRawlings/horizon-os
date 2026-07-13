@@ -10,7 +10,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
   // RSB_DISABLE_AI keeps triage deterministic + offline for smoke: it exercises the
-  // PHASE-08 local heuristics (no network, no key needed), which is exactly the path we
+  // local heuristics (no network or key needed), which is the path we
   // want smoke to guard. AI refinement is tested manually, not in the 10-second smoke.
   env: { ...process.env, PORT: String(PORT), RSB_DISABLE_AI: "1", RSB_DISABLE_EXTERNAL_INTEGRATIONS: "1" },
   stdio: "ignore",
@@ -141,7 +141,7 @@ if (new Set(knownDois).size !== knownDois.length) {
 }
 ok(`/api/research/papers returned ${papers.papers.length} paper(s) with labeled summaries and metadata status`);
 
-// PHASE-12: research ideas endpoint (empty-shaped is valid — the owner may have none yet).
+// Research ideas endpoint; an empty result is valid.
 const ideas = await (await fetch(`${BASE}/api/research/ideas`)).json();
 if (!Array.isArray(ideas.ideas)) fail("/api/research/ideas did not return an ideas array");
 ok(`/api/research/ideas returned ${ideas.ideas.length} idea(s)`);
@@ -160,7 +160,7 @@ if (!projects.projects.every((p) => p.name && p.location !== undefined && p.stat
   fail("project registry entry missing name/location/status");
 }
 if (!projects.projects.every((p) => typeof p.captures === "number")) {
-  fail("project registry entry missing captures count (PHASE-13)");
+  fail("project registry entry missing captures count");
 }
 if (!projects.projects.every((p) => p.type === "project-registry")) {
   fail("/api/projects included a non-project registry note");
@@ -181,7 +181,7 @@ const missingStatusProject = await fetch(`${BASE}/api/projects/status`, {
 if (missingStatusProject.status !== 404) fail(`/api/projects/status should 404 for unknown ids, got ${missingStatusProject.status}`);
 ok("/api/projects/status validates status changes without mutating unknown projects");
 
-// PHASE-13: the open-workspace route must reject unknown ids cleanly (no side effects).
+// The open-workspace route must reject unknown ids cleanly without side effects.
 const badOpen = await fetch(`${BASE}/api/projects/open`, {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -198,7 +198,7 @@ if (!pile.items.every((it) => it.id && (it.source === "to_triage" || it.source =
 }
 ok(`/api/capture/pile returned ${pile.counts.total} item(s) (${pile.counts.toTriage} to-triage + ${pile.counts.queue} queue)`);
 
-// PHASE-08: local heuristics produce suggestions with NO AI configured (RSB_DISABLE_AI=1).
+// Local heuristics produce suggestions with external AI disabled.
 async function triage(text) {
   const r = await fetch(`${BASE}/api/capture/triage`, {
     method: "POST",

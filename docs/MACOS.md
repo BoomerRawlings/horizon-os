@@ -1,23 +1,20 @@
-# macOS installation and status
+# Run Horizon on macOS
 
-macOS support is an early preview. Horizon's vault connection, capture queue, calendar, projects, research, files, and Focus screen are designed to run on macOS. Windows-specific Office/Codex launchers, the startup toggle, and in-app source rebuilding are not available yet.
+There is not a current macOS installer for this release. Horizon can be built on a Mac, but the build is unsigned and some Windows launchers are not available.
 
-## Install a release
+## Prepare the vault
 
-1. Install Obsidian and let Obsidian Sync fully download the existing vault.
-2. Open the newest release that includes v0.2.2-or-newer Mac assets. The older v0.2.0 preview does not include the new attached-vault handoff.
-3. Download `Horizon-<version>-arm64.dmg` for an Apple Silicon Mac or `Horizon-<version>-x64.dmg` for an Intel Mac.
-4. Open the DMG and drag Horizon into Applications.
-5. Right-click Horizon in Applications and choose **Open** for the first launch.
-6. Select the synced vault's top-level folder, then connect integrations.
+1. Install Obsidian.
+2. Use **Open vault from Obsidian Sync > Setup** to connect the remote vault.
+3. Create the local vault on the Mac.
+4. Wait until Obsidian shows **Fully Synced**.
+5. Open the vault once and confirm that your notes are present.
 
-The preview is not signed or notarized with an Apple Developer certificate. If macOS still blocks it, open **System Settings > Privacy & Security**, verify that the blocked app is Horizon from this repository, and choose **Open Anyway**. Do not weaken system-wide security settings.
+Horizon uses that local vault folder in place.
 
-Horizon stores the selected path in `~/Library/Application Support/Horizon/vault-connection.json` and uses the vault in place. Credentials remain in that machine-local app-data directory.
+## Build Horizon
 
-## Build on a Mac
-
-Install Node.js 22+ and Git:
+Install Node.js 22 or newer and Git, then run:
 
 ```bash
 git clone https://github.com/BoomerRawlings/horizon-os.git
@@ -26,7 +23,9 @@ npm ci
 npm run native:pack:mac
 ```
 
-To build a specific architecture instead:
+The DMG and ZIP files will be in `Dashboard/native-dist/`.
+
+To build one architecture only:
 
 ```bash
 # Apple Silicon
@@ -36,15 +35,12 @@ npx electron-builder --mac --arm64
 npx electron-builder --mac --x64
 ```
 
-DMG and ZIP files are written to `Dashboard/native-dist/`.
+Open the DMG and drag Horizon into Applications. Because the preview is not signed or notarized, macOS may block the first launch. Right-click Horizon and choose **Open**. If needed, use **System Settings > Privacy & Security > Open Anyway** after confirming the app came from this repository.
 
-## Path to a polished Mac release
+On first launch, select the local vault's top-level folder. Horizon saves that path in `~/Library/Application Support/Horizon/vault-connection.json`. Connect integrations separately on the Mac.
 
-A production-grade Mac release still needs:
+## Current limits
 
-1. An Apple Developer account.
-2. A Developer ID Application certificate configured for the release build.
-3. Apple notarization credentials.
-4. Validation of launchers and startup behavior with Mac-native implementations.
-
-Until signing and notarization are configured, macOS downloads are clearly labeled unsigned previews.
+- Windows-specific Office and Codex launchers are not available.
+- Start-at-login and automatic source updates need Mac-specific work.
+- A normal public Mac installer still needs Apple signing and notarization.

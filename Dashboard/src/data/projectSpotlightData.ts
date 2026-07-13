@@ -42,7 +42,7 @@ type SpotlightContext = {
   pinnedProjectId?: string | null;
   snoozedProjectIds?: string[];
   today?: string;
-  // PHASE-09: static projectRegistry merged with vault Project Registry/*.md notes.
+  // Static projectRegistry merged with vault Project Registry/*.md notes.
   // Defaults to the static registry alone when omitted (offline/dev fallback).
   registry?: Project[];
 };
@@ -433,10 +433,8 @@ function scoreProject(project: Project, context: SpotlightContext): ProjectScore
   }
 
   // Manual and pinned selections must be DECISIVE, not merely a nudge: the UI announces
-  // "Manually selected", so a calendar-heavy project (deadline+coursework+urgency stacks
-  // can top ~180) must never out-score an explicit human choice. The old +80/+100 boosts
-  // silently lost that fight (found by PHASE-13's "Spotlight this" verification — the
-  // Spotlight's own switcher dots had the same latent bug).
+  // A manual selection must outrank calendar and urgency scoring. This also keeps the
+  // Spotlight switcher dots aligned with an explicit choice.
   if (context.manualProjectId === project.id) {
     score += 400;
     reason = "Spotlighted because: Manually selected";

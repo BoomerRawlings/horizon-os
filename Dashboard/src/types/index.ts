@@ -144,7 +144,7 @@ export type Project = {
   summary: string;
   createdAt: string;
   updatedAt: string;
-  // PHASE-09: set when this project came from (or is linked to) a vault
+  // Set when this project came from or is linked to a vault
   // Project Registry/*.md note, so Spotlight can point back at the source of truth.
   vaultPath?: string;
 };

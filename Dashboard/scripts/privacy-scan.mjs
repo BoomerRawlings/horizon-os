@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.resolve(path.dirname(scriptPath), "..", "..");
-const excludedDirectories = new Set([".git", ".claude", "dist", "native-dist", "node_modules"]);
+const excludedDirectories = new Set([".git", "dist", "native-dist", "node_modules"]);
 const binaryExtensions = new Set([
   ".bmp", ".dmg", ".exe", ".gif", ".ico", ".jpeg", ".jpg", ".pdf", ".png", ".webp", ".zip",
 ]);

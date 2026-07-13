@@ -1,15 +1,8 @@
-// captureHeuristics.cjs — PHASE-08: deterministic, zero-AI, zero-network pre-triage.
+// Deterministic, offline pre-triage for mechanically obvious captures. Dates and times can
+// suggest calendar items, DOI and URL values can suggest research items, and explicit
+// reminders can suggest open reminders. Optional AI can refine or add suggestions later.
 //
-// Many captures are mechanically obvious: a date+time is a calendar item, a DOI/URL is
-// research, "remind me to X" is an open reminder. This module turns those into suggested
-// action buttons INSTANTLY and for free, so the pile is useful even when the ai-agent
-// integration isn't configured. When the AI IS configured it REFINES these (server merges;
-// see triageCapture in server.cjs) rather than gatekeeping.
-//
-// PRIME DIRECTIVE (AGENTS.md + phase card STOP rules): DON'T GUESS. Under-suggest rather
-// than over-suggest. NEVER invent a date — no date parsed means the calendar rule simply
-// doesn't fire. Anything ambiguous is "medium" confidence at most (so the sweep's
-// "apply all high-confidence" skips it and waits for a human).
+// Never invent a date. Ambiguous matches stay at medium confidence so bulk actions skip them.
 //
 // Output: raw action objects the server normalizes via normalizeCaptureTriageResult:
 //   { type, label, confidence: "high"|"medium", reason, payload: { ...subset } }

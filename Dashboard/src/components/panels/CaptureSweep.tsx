@@ -1,7 +1,6 @@
-// PHASE-05 ⭐ Sweep the pile: batch triage the unhandled capture pile with one-click
+// Sweep the pile: batch triage the unhandled capture pile with one-click
 // action buttons. Renders INSIDE the existing capture motion-layer (App.tsx swaps this in
-// for CaptureWorkspace when captureMode === "sweep") - no new screen/route/transition, per
-// the phase card's STOP rule. Reuses the registry loop end to end:
+// for CaptureWorkspace when captureMode === "sweep"). Reuses the registry loop end to end:
 //   GET  /api/capture/pile           - the two-source pile (to_triage + queue)
 //   POST /api/capture/pile/triage    - same AI triage as the single flow, one item
 //   POST /api/capture/apply          - UNCHANGED apply path (per-item, with undo)

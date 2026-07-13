@@ -1,7 +1,5 @@
-// captureActions.cjs — THE single source of truth for capture action definitions.
-// (PHASE-03 of docs/codex/horizon-roadmap — kills the "edit 8 places to add an action"
-// treadmill. The UI consumes this via GET /api/capture/actions; server.cjs dispatches
-// executors via the `executor` key. Executor implementations stay in server.cjs.)
+// Single source of truth for capture action definitions. The UI reads this registry from
+// GET /api/capture/actions, and server.cjs dispatches each executor by its `executor` key.
 //
 // To ADD a new capture action:
 //   1. Add one entry below (labels, plans, permission, boundary, hints).

@@ -30,7 +30,7 @@ export function StatusRow({
   onOpenReview,
   onOpenSweep,
 }: StatusRowProps) {
-  // Every counter here is backed by real data (PHASE-10 truthfulness pass): events /
+  // Every counter here is backed by live data: events /
   // priorities / review-items come from the live calendar; focus reflects the real timer
   // state; to-triage is the live capture-pile count. The calendar-derived counters open the
   // calendar; priorities and review-items open their focused lists; focus opens the full

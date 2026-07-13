@@ -1,11 +1,11 @@
-# Horizon one-click bootstrap installer (runs on the friend's PC).
+# Horizon Windows installer.
 #
 # What it does, in plain terms:
-#   1. Copies the ready-to-run Horizon app into this user's local application folder.
+#   1. Copies Horizon into the current user's local application folder.
 #   2. Makes sure Node.js and Git are present (used only for automatic updates) via winget.
 #   3. Prepares dependencies so background auto-updates can rebuild the app.
 #   4. Creates Desktop / Start-menu shortcuts and registers the auto-updater (via the app's install.ps1).
-#   5. Optionally wires up auto-updates from a distribution repo (see distribution.json).
+#   5. Configures automatic updates from distribution.json when available.
 #   6. Launches Horizon, which asks for the existing synced Obsidian vault on first run.
 #
 # Horizon RUNS from the prebuilt app, so Node/Git are not required just to use it - they only

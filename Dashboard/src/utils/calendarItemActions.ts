@@ -1,4 +1,4 @@
-// Shared one-click calendar item actions (PHASE-06). Both TodayPanel and
+// Shared one-click calendar item actions. Both TodayPanel and
 // ExpandedCalendar patch the same RCF item file via POST /api/items/:id and open the
 // underlying markdown via the existing obsidian file-browser source (POST
 // /api/files/open) - no new server routes needed, this just reuses what exists.

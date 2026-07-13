@@ -16,7 +16,8 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "smoke": "node tests/smoke.mjs",
     "test:heuristics": "node tests/heuristics.test.mjs",
-    "test:vault": "node tests/vaultConnection.test.cjs"
+    "test:vault": "node tests/vaultConnection.test.cjs",
+    "privacy:scan": "node scripts/privacy-scan.mjs"
   },
   "main": "electron/main.cjs",
   "build": {

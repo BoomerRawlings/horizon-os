@@ -1,4 +1,4 @@
-# make-distribution.ps1 - assembles the shareable Horizon bundle you hand to a friend.
+# make-distribution.ps1 - assembles the Windows installer bundle.
 #
 # It produces ONE ZIP containing:
 #   Install Horizon.cmd, bootstrap-install.ps1, SETUP.html, distribution.json  (the installer)
@@ -56,12 +56,11 @@ Ok "Staging at $stage"
 
 # --- 2. Copy the app (source for updates + prebuilt for instant run) ------------------------
 # Excludes: node_modules (huge; the installer restores it), the dist-installer folder itself,
-# my dev .claude folder, leftover build temp, and logs. Everything else (src, server.cjs,
+# local development folders, leftover build files, and logs. Everything else (src, server.cjs,
 # electron, launch scripts, and native-dist\win-unpacked) ships.
 Step "Adding the Horizon app (source + prebuilt)"
 $appExcludeDirs = @(
   (Join-Path $dashboard "node_modules"),
-  (Join-Path $dashboard ".claude"),
   (Join-Path $dashboard "dist-installer"),
   (Join-Path $dashboard "native-dist\win-unpacked.tmp")
 )
@@ -117,8 +116,8 @@ Write-Host ""
 Write-Host "  Bundle ready:" -ForegroundColor Green
 Write-Host "    $zipPath  (~$sizeMb MB)" -ForegroundColor White
 Write-Host ""
-Write-Host "  Before sending:" -ForegroundColor White
-Write-Host "   - To enable auto-updates for your friend, set distribution.json > updateRepoUrl" -ForegroundColor Gray
+Write-Host "  Before publishing:" -ForegroundColor White
+Write-Host "   - To enable auto-updates, set distribution.json > updateRepoUrl" -ForegroundColor Gray
 Write-Host "     to a PUBLIC, code-only repo, then re-run this builder. (See DISTRIBUTION.md.)" -ForegroundColor Gray
 Write-Host "   - On the laptop: finish Obsidian Sync, unzip this bundle, then double-click 'Install Horizon.cmd'." -ForegroundColor Gray
 Write-Host ""

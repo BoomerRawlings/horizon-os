@@ -34,11 +34,6 @@ function Get-NodeCommand {
     return $nodeCommand.Source
   }
 
-  $bundledNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
-  if (Test-Path -LiteralPath $bundledNode) {
-    return $bundledNode
-  }
-
   return $null
 }
 
@@ -52,7 +47,7 @@ if (Test-PortOpen $port) {
 
 $node = Get-NodeCommand
 if (-not $node) {
-  throw "Node.js was not found. Open this folder in Codex once, or install Node.js, then launch again."
+  throw "Node.js was not found. Install Node.js, then launch Horizon again."
 }
 
 $oldPort = $env:PORT

@@ -13,7 +13,6 @@ release/
 .DS_Store
 Thumbs.db
 .obsidian/
-.claude/
 tmp/
 tmp_*.js
 00_System/local/

@@ -1,62 +1,69 @@
-# Horizon OS
+# Horizon
 
-Horizon is a local-first desktop workspace for turning loose captures into calendar items, projects, notes, and focused work sessions. Its source of truth is a plain folder of Markdown and JSON files that you can inspect, back up, or open in another editor.
+Horizon is a desktop workspace for your calendar, projects, research, files, capture queue, and focus sessions. It works directly from an Obsidian vault.
 
-> Early preview: the core local workflow works, but several third-party integrations are still launchers or setup placeholders. Read the platform notes before installing.
+## Install on Windows
 
-## Download
+### 1. Finish setting up Obsidian
 
-Download the newest build from [GitHub Releases](https://github.com/BoomerRawlings/horizon-os/releases/latest).
+I recommend using [Obsidian Sync](https://obsidian.md/help/sync/setup) so the same vault is available on every computer.
 
-### Windows 10/11
+On the new computer:
 
-1. Install Obsidian, sign in to Obsidian Sync, and let the existing vault finish downloading.
-2. Open the vault once in Obsidian to confirm it is complete.
-3. Download `Horizon-Setup-<version>.zip` and extract the entire ZIP.
+1. Install Obsidian.
+2. Open the vault switcher. Under **Open vault from Obsidian Sync**, choose **Setup**.
+3. Sign in, choose your remote vault, and create the local vault on this computer.
+4. Wait until Obsidian shows the green check and **Fully Synced**.
+5. Open the vault once and make sure your notes are there.
+
+Obsidian calls the copy on this computer the **local vault**. That local folder is the one Horizon uses. Horizon does not connect directly to the remote vault stored by Obsidian Sync. See [Local and remote vaults](https://obsidian.md/help/Obsidian%2BSync/Local%2Band%2Bremote%2Bvaults).
+
+If the vault is already on this computer and fully synced, skip to the next section.
+
+### 2. Install Horizon
+
+1. Open the [latest release](https://github.com/BoomerRawlings/horizon-os/releases/latest).
+2. Download `Horizon-Setup-<version>.zip`.
+3. Extract the entire ZIP to a normal folder.
 4. Double-click `Install Horizon.cmd`.
-5. On first launch, choose the synced vault's top-level folder.
-6. Connect the integrations you use.
+5. When Horizon opens, choose the top-level folder of the local vault you just opened in Obsidian.
+6. Open **Settings > Integrations** and connect the services you use.
 
-Horizon installs app code under `%LOCALAPPDATA%\HorizonOS` and reads the selected vault in place. It does not import, copy, merge, or replace the vault. See [Windows installation](docs/WINDOWS.md) for details.
+That is it. Horizon uses the vault in place. It does not make a second copy, move the vault, or replace any notes.
 
-### macOS
+Horizon expects an existing Horizon vault. The folder picker checks for `00_Index.md`, `Calendar`, `Inbox`, and `Runs`. If it rejects the folder, make sure you selected the top-level vault folder and that Obsidian Sync has finished.
 
-The vault-selection layer is cross-platform, but the current downloadable Mac preview predates this handoff flow. Until a new DMG is published, build v0.2.2 on a Mac using the [macOS instructions](docs/MACOS.md).
+More detail: [Windows installation](docs/WINDOWS.md)
 
-When a v0.2.2-or-newer DMG is available:
+## What moves between computers
 
-1. Install Obsidian and finish syncing the existing vault.
-2. Download the DMG that matches your Mac:
-   - `arm64` for Apple Silicon (M-series)
-   - `x64` for Intel
-3. Open the DMG and drag Horizon into Applications.
-4. Because preview builds are not notarized yet, right-click Horizon and choose **Open** the first time.
-5. Choose the synced vault's top-level folder, then connect integrations.
+Obsidian Sync carries the vault itself: notes, calendar items, projects, research records, and captures.
 
-Core capture, calendar, project, file, research, and focus workflows are portable; Windows-specific app launchers and automatic rebuilding are not. See [macOS installation and status](docs/MACOS.md).
+Each computer still needs its own:
 
-## The basic workflow
+- Horizon installation
+- saved path to the local vault
+- Microsoft, Google, Zotero, Codex, and other integration sign-ins
 
-1. **Capture** anything without deciding where it belongs.
-2. **Triage** the queue into a dated item, project, note, research item, or follow-up question.
-3. **Choose a project** and identify one concrete next action.
-4. **Start Focus** from Home, a project, or the Focus screen.
-5. **Finish or recapture** what remains, then return to the queue later.
+If you use Obsidian Sync, keep its local vault out of OneDrive, Dropbox, or another sync service. See [Obsidian Sync FAQ](https://obsidian.md/help/sync/faq). Obsidian also recommends keeping a [separate backup](https://obsidian.md/help/backup); sync is not a backup.
 
-The full walkthrough is in [How to use Horizon](docs/USAGE.md) and inside the app under **Settings > Advanced > How to use Horizon**.
+## macOS
 
-## What is local
+There is not a current macOS installer for this release. Horizon can be built on a Mac, but the build is unsigned and some Windows launchers are not available.
 
-- Your selected Obsidian vault remains where Obsidian Sync placed it.
-- The app, vault pointer, and vault are separate; uninstalling Horizon does not remove the vault.
-- Horizon's server listens only on `127.0.0.1`.
-- There is no built-in analytics or telemetry service.
-- OAuth tokens and API keys are excluded from Git and release bundles.
-- In this preview, manually entered API keys are stored in Horizon's local app-data file, not an OS keychain. Use limited-purpose credentials and read [Privacy and credentials](docs/PRIVACY.md).
+See [macOS installation](docs/MACOS.md).
 
-This repository contains app code plus empty fixtures for development. Release bundles contain the app only. Runtime calendar items, captures, project notes, integration logs, credentials, build output, and local settings are ignored.
+## Use Horizon
 
-## Develop locally
+1. Capture a task, idea, link, paper, or deadline.
+2. Sweep the queue and send each item to Calendar, Projects, Research, or Notes.
+3. Choose one project and one clear next action.
+4. Start a Focus session.
+5. Mark the action complete or capture what remains.
+
+See [How to use Horizon](docs/USAGE.md), or open **Settings > Advanced > How to use Horizon** inside the app.
+
+## Build from source
 
 Requirements: Node.js 22 or newer and Git.
 
@@ -71,18 +78,17 @@ npm run native:dev
 Useful checks:
 
 ```bash
+npm run test:vault
 npm run test:heuristics
 npm run smoke
 npm run privacy:scan
 ```
 
-Release artifacts are built and tested on their target operating system. The release page includes separate unsigned macOS builds for Intel and Apple Silicon.
+## Privacy
 
-## Repository layout
+The vault stays in the folder you selected. Horizon's local server listens only on `127.0.0.1`, and the app has no analytics or telemetry service. Integration credentials are stored outside the vault and are not included in this repository or its installers.
 
-- `Dashboard/` - React, Vite, Node, and Electron application
-- `Calendar/`, `Inbox/`, `Project Registry/`, `Research Papers/`, `Runs/` - empty development fixtures (not included in the installer)
-- `docs/` - installation, usage, privacy, and platform notes
+See [Privacy and credentials](docs/PRIVACY.md).
 
 ## License
 

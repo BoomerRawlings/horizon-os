@@ -1,10 +1,7 @@
-// PHASE-13: the Projects workspace — real project management with sidebar navigation.
-// Answers the owner's "how do I get to Project Management?": Sidebar → Projects opens this
-// as a workspace motion-layer (same choreography as Files/Calendar/Spotlight — no new
-// transition system).
+// Projects opens as a workspace motion-layer using the shared screen choreography.
 //
-// Data = the SAME merged registry Project Spotlight uses (PHASE-09): the vault's human-
-// maintained Project Registry/*.md notes + the hand-tuned static spotlight entries. New
+// Data uses the same merged registry as Project Spotlight: Project Registry/*.md notes
+// plus the hand-tuned static spotlight entries. New
 // projects enter through Capture so the proposed registry write is reviewed before saving.
 //
 // Row actions (v1 — management, not kanban):

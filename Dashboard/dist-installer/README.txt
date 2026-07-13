@@ -1,31 +1,29 @@
-HORIZON - LAPTOP INSTALL
-========================
+HORIZON - WINDOWS INSTALL
+=========================
 
-Before you install
-------------------
-1. Install Obsidian and sign in to Obsidian Sync.
-2. Let your existing vault finish downloading to this laptop.
-3. Confirm the vault opens normally in Obsidian.
+Set up Obsidian first
+---------------------
+1. Install Obsidian.
+2. In the vault switcher, choose Open vault from Obsidian Sync > Setup.
+3. Sign in, connect the remote vault, and create its local vault on this computer.
+4. Wait until Obsidian shows Fully Synced.
+5. Open the vault once and make sure your notes are there.
 
 Install Horizon
 ---------------
 1. Extract this entire ZIP.
-2. Double-click: Install Horizon.cmd
-3. When Horizon opens, choose the TOP-LEVEL folder of the synced vault.
-4. Connect the integrations you use in Settings > Integrations.
+2. Double-click Install Horizon.cmd.
+3. When Horizon opens, choose the TOP-LEVEL folder of the local vault.
+4. Open Settings > Integrations and connect the services you use.
 
-That is the whole handoff. Horizon reads the synced files in place. It does not
-copy, merge, rename, or replace your vault. Calendar items, projects, research
-papers, captures, notes, and Horizon's vault-backed settings will already be
-available through Obsidian Sync.
+Horizon uses the selected vault in place. It does not copy, merge, move, or
+replace the vault.
 
-Machine-specific
-----------------
-- Microsoft, Google, Zotero, Codex, and other sign-ins must be connected once
-  on this laptop.
-- Horizon's pointer to the vault and all credentials stay in this computer's
-  private app-data folder; they are not added to Obsidian Sync or GitHub.
-- To switch vaults later, use Settings > Data & Storage > Change vault.
+The vault carries your notes, calendar items, projects, research records, and
+captures between computers. Integration sign-ins and the saved vault path must
+be set once on each computer.
 
-Requirements: Windows 10 or 11. The installer handles the application and its
-update helpers. Full help is in Settings > Advanced > How to use Horizon.
+To switch vaults later, use Settings > Data & Storage > Change vault.
+
+Requirements: Windows 10 or 11. Full help is under
+Settings > Advanced > How to use Horizon.

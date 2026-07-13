@@ -29,9 +29,9 @@ import type { FocusTimerController } from "../../hooks/useFocusTimer";
 import type { Project, RcfCalendarItem, SpotlightProgress, SpotlightSourceStatus, SpotlightViewModel } from "../../types";
 import { Panel } from "../ui/Panel";
 
-// PHASE-09: fetched once per mount and merged with the static registry so a new
+// Fetched once per mount and merged with the static registry so a new
 // Project Registry/*.md note appears as a selectable Spotlight project after reload,
-// with no code edit. See docs/codex/horizon-roadmap/PHASE-09-projects-bridge.md.
+// with no code edit.
 function useProjectRegistry(): Project[] {
   const [registry, setRegistry] = useState<Project[]>(projectRegistry);
 
@@ -63,7 +63,7 @@ type ProjectSpotlightProps = {
   today?: string;
 };
 
-// Exported for PHASE-13's ProjectsWorkspace "Spotlight this" action — dispatching this
+// Exported for the ProjectsWorkspace "Spotlight this" action — dispatching this
 // event with the new preferences keeps every mounted Spotlight instance in sync.
 export const SPOTLIGHT_PREFERENCES_EVENT = "horizon-spotlight-preferences-updated";
 

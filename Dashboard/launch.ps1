@@ -173,14 +173,9 @@ while ((Test-PortOpen $port) -and -not (Test-RawlingsPort $port)) {
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 $node = if ($nodeCommand) { $nodeCommand.Source } else { $null }
 
-$bundledNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
-if (-not $node -and (Test-Path -LiteralPath $bundledNode)) {
-  $node = $bundledNode
-}
-
 if (-not $node) {
   Add-Type -AssemblyName PresentationFramework
-  [System.Windows.MessageBox]::Show("Node.js was not found. Open this folder in Codex once, or install Node.js, then launch again.", "Horizon OS")
+  [System.Windows.MessageBox]::Show("Node.js was not found. Install Node.js, then launch Horizon again.", "Horizon OS")
   exit 1
 }
 

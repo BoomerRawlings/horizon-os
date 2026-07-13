@@ -2,7 +2,7 @@
 
 ## Start with Capture
 
-Capture is intentionally low-friction. Write the thought, deadline, link, or task as it arrives. Horizon saves the original text before asking you to organize it.
+Write the thought, deadline, link, or task as it arrives. Horizon saves the original text before asking you to organize it.
 
 Use the Capture Queue when you are ready to make decisions. Review each suggestion before applying it. If Horizon cannot determine a date or destination safely, it should ask for clarification instead of inventing one.
 
@@ -36,7 +36,7 @@ Status changes such as retiring a project still update the underlying project re
 
 ## Use the Research Desk and Workbench
 
-Research combines local paper notes with configured Zotero records. Search by title, author, DOI, or subject; use reading stages to separate **To read**, **Skimming**, **Read**, and **Annotated**; and dog-ear papers that need attention. Exact DOI matches can complete missing bibliographic fields, but Horizon leaves human-authored note values unchanged and shows unresolved gaps plainly.
+Research combines local paper notes with configured Zotero records. Search by title, author, DOI, or subject; use reading stages to separate **To read**, **Skimming**, **Read**, and **Annotated**; and dog-ear papers that need attention. Exact DOI matches can complete missing bibliographic fields without replacing values you already saved.
 
 Workbench is the landing area for writing that is not ready to file. Write freely, then review the proposed cleanup and connections before saving it as a durable note, project context, calendar item, or research idea. Use a small number of meaningful connections; the goal is a useful graph, not a dense one.
 

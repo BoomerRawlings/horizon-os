@@ -1525,7 +1525,7 @@ input:focus-visible {
   pointer-events: none;
 }
 
-/* PHASE-14: Saved Papers opens as a readable, centered, opaque panel with a strong
+/* Saved Papers opens as a readable, centered, opaque panel with a strong
    blurred scrim and a smooth in/out transition (matching Project Spotlight's feel) —
    was a low-opacity floater that bled into the Home screen behind it. */
 .saved-papers-scrim {
@@ -4410,7 +4410,7 @@ input:focus-visible {
     0 16px 48px rgba(var(--accent-rgb), 0.12);
 }
 
-/* PHASE-11: an action already applied this session — de-emphasized, not clickable. */
+/* An action already applied this session — de-emphasized, not clickable. */
 .capture-action-card-applied {
   border-color: rgba(52, 211, 153, 0.28);
   background:

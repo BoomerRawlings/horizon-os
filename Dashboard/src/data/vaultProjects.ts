@@ -1,8 +1,7 @@
-// PHASE-09 projects bridge: fetches the vault's Project Registry/*.md notes (the
-// human-maintained source of truth - see Project Registry/index.md) and adapts them into
+// Fetches Project Registry/*.md notes (see Project Registry/index.md) and adapts them into
 // Spotlight-shaped Project records. The static entries in projectSpotlightData.ts keep
 // their hand-tuned matching; this only ADDS vault-only projects and links vaultPath onto
-// static entries that share a name. See docs/codex/horizon-roadmap/PHASE-09-projects-bridge.md.
+// static entries that share a name.
 import type { Project, ProjectStatus } from "../types";
 import { normalizeVaultText } from "../utils/markdownText";
 
@@ -16,7 +15,7 @@ export type VaultProjectRecord = {
   updated: string;
   description: string;
   path: string;
-  // PHASE-13: bullets under the note's "## Captures" section (attach_to_project appends
+  // Bullets under the note's "## Captures" section (attach_to_project appends
   // them) — shown as attached-capture activity in the Projects workspace.
   captures: number;
 };

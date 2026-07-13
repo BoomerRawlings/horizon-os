@@ -1,4 +1,4 @@
-// PHASE-08 heuristics unit test. Run: node tests/heuristics.test.mjs
+// Heuristics unit test. Run: node tests/heuristics.test.mjs
 // Pure/deterministic — pins today to 2026-07-08 (a Wednesday) so relative dates are stable.
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
