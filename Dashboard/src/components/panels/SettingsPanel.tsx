@@ -964,7 +964,11 @@ export function SettingsPanel({
                 type="button"
               >
                 <DownloadCloud className="h-4 w-4" />
-                {applyingUpdate ? "Installing..." : "Download, install, restart"}
+                {applyingUpdate
+                  ? "Installing..."
+                  : updateSnapshot?.packageStale && !updateSnapshot?.sourceUpdateAvailable
+                    ? "Repair app and restart"
+                    : "Download, install, restart"}
               </button>
               <button
                 className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.3)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
@@ -983,10 +987,12 @@ export function SettingsPanel({
               ) : null}
               {updateSnapshot ? (
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
-                  <div>Version: {updateSnapshot.version || APP_VERSION}</div>
+                  <div>Installed version: {updateSnapshot.packagedVersion || updateSnapshot.version || APP_VERSION}</div>
+                  <div>Source version: {updateSnapshot.sourceVersion || "unknown"}</div>
                   <div>Status: {updateSnapshot.checkState?.replaceAll("_", " ") || "checked"}</div>
                   <div>Current: {shortHash(updateSnapshot.current)}</div>
                   <div>Latest: {shortHash(updateSnapshot.latest)}</div>
+                  <div>Installed build: {shortHash(updateSnapshot.packagedCommit)}</div>
                   <div>Branch: {updateSnapshot.branch ?? "unknown"}</div>
                   <div>Upstream: {updateSnapshot.upstream ?? "unknown"}</div>
                 </div>
@@ -999,6 +1005,11 @@ export function SettingsPanel({
               {updateSnapshot?.dirty ? (
                 <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-xs text-amber-200">
                   Local changes are present, so install is paused until the repo is clean.
+                </div>
+              ) : null}
+              {updateSnapshot?.packageStale && !updateSnapshot?.dirty && !updateSnapshot?.fetchFailed ? (
+                <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-300/8 px-3 py-2 text-xs text-sky-100">
+                  The source checkout is newer than the packaged app currently on screen. Repair will rebuild the app, verify its build identity, and relaunch it.
                 </div>
               ) : null}
             </div>

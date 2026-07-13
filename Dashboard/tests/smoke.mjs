@@ -55,9 +55,9 @@ async function waitForHealth(tries = 40) {
 
 const health = await waitForHealth();
 if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
-if (health.version !== "0.2.4") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
+if (health.version !== "0.2.5") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
-ok("/api/health identifies Horizon 0.2.4 and its ready active vault");
+ok("/api/health identifies Horizon 0.2.5 and its ready active vault");
 
 const updateResponse = await fetch(`${BASE}/api/update/check`);
 const update = await updateResponse.json();
@@ -66,6 +66,9 @@ if (!updateResponse.ok || update.version !== health.version || !update.checkedAt
 }
 if (update.fetchFailed && /up to date/i.test(update.message || "")) {
   fail("/api/update/check claimed Horizon was current after its fetch failed");
+}
+if (update.checkState === "current" && update.packageStale) {
+  fail("/api/update/check labeled a stale packaged app current");
 }
 ok(`/api/update/check returned a truthful ${update.checkState} status for Horizon ${update.version}`);
 

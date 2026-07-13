@@ -1,11 +1,11 @@
 {
   "name": "rawlings-os-dashboard",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/write-build-info.mjs",
     "native:dev": "npm run build && electron .",
     "native:pack:safe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack-native.ps1",
     "native:pack:mac": "npm run build && electron-builder --mac dmg zip",
@@ -17,6 +17,8 @@
     "smoke": "node tests/smoke.mjs",
     "test:heuristics": "node tests/heuristics.test.mjs",
     "test:updater": "node tests/updaterFailure.test.mjs",
+    "test:updater-parity": "node tests/updaterParity.test.mjs",
+    "test:installer-parity": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/installerParity.test.ps1",
     "test:vault": "node tests/vaultConnection.test.cjs",
     "privacy:scan": "node scripts/privacy-scan.mjs"
   },

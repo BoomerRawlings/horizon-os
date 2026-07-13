@@ -18,6 +18,8 @@ function Ok([string]$m) { Write-Host "    $m" -ForegroundColor Green }
 $dashboard = Split-Path -Parent $PSScriptRoot                 # ...\Dashboard
 $installerDir = Join-Path $dashboard "dist-installer"
 $prebuilt = Join-Path $dashboard "native-dist\win-unpacked"
+$prebuiltBuildInfo = Join-Path $prebuilt "resources\app\dist\build-info.json"
+$prebuiltPackage = Join-Path $prebuilt "resources\app\package.json"
 
 # Version + output location (default: Desktop, safely outside the vault).
 $version = "0.0.0"
@@ -85,12 +87,23 @@ try {
   $remoteRef = (& git ls-remote $repoUrl "refs/heads/$branch" 2>$null | Select-Object -First 1)
   $commit = if ($remoteRef) { ($remoteRef -split "\s+")[0].Trim() } else { "" }
   if (-not $commit) { throw "Could not resolve the configured public update branch." }
+  $buildInfo = Get-Content -Raw -LiteralPath $prebuiltBuildInfo | ConvertFrom-Json
+  $packaged = Get-Content -Raw -LiteralPath $prebuiltPackage | ConvertFrom-Json
+  if ([string]$buildInfo.commit -ne $commit) { throw "The prebuilt app does not match the public release commit." }
+  if ([string]$buildInfo.version -ne $version -or [string]$packaged.version -ne $version) {
+    throw "The prebuilt app version does not match package.json."
+  }
+  if ($buildInfo.dirty -eq $true) { throw "The prebuilt app was made from uncommitted source changes." }
+  $prebuiltRenderer = Join-Path (Split-Path -Parent $prebuiltBuildInfo) ([string]$buildInfo.renderer)
+  if (-not $buildInfo.renderer -or -not (Test-Path -LiteralPath $prebuiltRenderer)) {
+    throw "The prebuilt renderer identity is missing."
+  }
   $distribution | Add-Member -NotePropertyName buildCommit -NotePropertyValue $commit -Force
   $distribution | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stagedDistributionPath -Encoding UTF8
   Ok "Update source pinned to $repoUrl ($branch) at $($commit.Substring(0, 8))."
 } catch {
-  Copy-Item -LiteralPath $distributionPath -Destination $stagedDistributionPath -Force
-  Warn "Could not stamp the current branch into distribution.json; copied the configured default."
+  Warn "Distribution verification failed: $($_.Exception.Message)"
+  exit 1
 }
 $readme = Join-Path $installerDir "README.txt"
 if (Test-Path -LiteralPath $readme) { Copy-Item -LiteralPath $readme -Destination (Join-Path $stage "README.txt") -Force }

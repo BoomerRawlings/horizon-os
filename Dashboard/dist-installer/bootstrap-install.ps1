@@ -11,11 +11,22 @@
 # Horizon RUNS from the prebuilt app, so Node/Git are not required just to use it - they only
 # enable hands-off updates. The script is safe to run more than once.
 
+param(
+  [string]$InstallRoot = "",
+  [switch]$SkipHelpers,
+  [switch]$SkipShortcuts,
+  [switch]$SkipLaunch,
+  [switch]$NonInteractive
+)
+
 $ErrorActionPreference = "Stop"
 
 function Say([string]$m, [string]$color = "Gray") { Write-Host $m -ForegroundColor $color }
 function Step([string]$m) { Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
 function Warn([string]$m) { Write-Host "    ! $m" -ForegroundColor Yellow }
+function Pause-IfInteractive {
+  if (-not $NonInteractive) { Read-Host "Press Enter to close" | Out-Null }
+}
 function Invoke-InstallerGit([string[]]$Arguments) {
   $output = & git @Arguments 2>&1
   if ($LASTEXITCODE -ne 0) {
@@ -31,7 +42,7 @@ $configPath = Join-Path $bundle "distribution.json"
 if (-not (Test-Path -LiteralPath $source)) {
   Warn "Could not find the HorizonOS payload next to this installer."
   Warn "Make sure you extracted the whole ZIP (not just the installer) and try again."
-  Read-Host "Press Enter to close"
+  Pause-IfInteractive
   exit 1
 }
 
@@ -43,11 +54,27 @@ Write-Host ""
 # --- 1. Use a stable per-user application location -------------------------------------------
 # Vault data is deliberately NOT installed here. Horizon stores the selected synced-vault
 # path in %APPDATA%\Horizon and reads the vault in place.
-$target = Join-Path $env:LOCALAPPDATA "HorizonOS"
+$target = if ($InstallRoot) { [System.IO.Path]::GetFullPath($InstallRoot) } else { Join-Path $env:LOCALAPPDATA "HorizonOS" }
 
 $targetDashboard = Join-Path $target "Dashboard"
 $targetApp = Join-Path $targetDashboard "native-dist\win-unpacked\Horizon.exe"
+$targetBuildInfo = Join-Path $targetDashboard "native-dist\win-unpacked\resources\app\dist\build-info.json"
+$targetPackage = Join-Path $targetDashboard "native-dist\win-unpacked\resources\app\package.json"
 $alreadyInstalled = Test-Path -LiteralPath $targetApp
+
+function Stop-InstalledHorizon {
+  $running = @(Get-CimInstance Win32_Process -Filter "Name = 'Horizon.exe'" -ErrorAction SilentlyContinue | Where-Object {
+    $_.ExecutablePath -and $_.ExecutablePath.StartsWith($targetDashboard, [System.StringComparison]::OrdinalIgnoreCase)
+  })
+  if (-not $running.Count) { return }
+  Warn "Closing the installed Horizon app before replacing it."
+  foreach ($process in $running) {
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+  Start-Sleep -Milliseconds 700
+}
+
+Stop-InstalledHorizon
 
 # --- 2. Copy the app only -------------------------------------------------------------------
 Step "Copying Horizon to $target"
@@ -61,38 +88,57 @@ if ($alreadyInstalled) {
 }
 if ($LASTEXITCODE -ge 8) {
   Warn "Copy reported errors (robocopy exit $LASTEXITCODE). Check that the destination is writable."
-  Read-Host "Press Enter to close"
+  Pause-IfInteractive
+  exit 1
+}
+$sourceNative = Join-Path $source "Dashboard\native-dist\win-unpacked"
+$targetNative = Join-Path $targetDashboard "native-dist\win-unpacked"
+if (-not (Test-Path -LiteralPath $sourceNative)) {
+  Warn "The ready-to-run Horizon app is missing from this installer."
+  Pause-IfInteractive
+  exit 1
+}
+robocopy $sourceNative $targetNative /MIR /NP /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -ge 8) {
+  Warn "The packaged app could not be replaced (robocopy exit $LASTEXITCODE)."
+  Pause-IfInteractive
   exit 1
 }
 Say "    Done." "Green"
 
 # --- 3. Dependencies (Node + Git) for automatic updates -------------------------------------
-Step "Checking helpers for automatic updates (Node.js + Git)"
-$hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
+$haveNode = $false
+$haveGit = $false
+if ($SkipHelpers) {
+  Say "    Skipping helper setup for installer verification." "DarkGray"
+} else {
+  Step "Checking helpers for automatic updates (Node.js + Git)"
+  $hasWinget = [bool](Get-Command winget -ErrorAction SilentlyContinue)
 
-function Ensure-Tool([string]$command, [string]$wingetId, [string]$label) {
-  if (Get-Command $command -ErrorAction SilentlyContinue) {
-    Say "    $label found." "Green"
-    return $true
-  }
-  if ($hasWinget) {
-    Say "    Installing $label..."
-    try {
-      winget install --id $wingetId --silent --accept-source-agreements --accept-package-agreements | Out-Null
-    } catch {
-      Warn "$label install did not complete automatically."
+  function Ensure-Tool([string]$command, [string]$wingetId, [string]$label) {
+    if (Get-Command $command -ErrorAction SilentlyContinue) {
+      Say "    $label found." "Green"
+      return $true
     }
-    # winget updates the persistent PATH, but not this already-running setup window.
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-    if (Get-Command $command -ErrorAction SilentlyContinue) { Say "    $label installed." "Green"; return $true }
+    if ($hasWinget) {
+      Say "    Installing $label..."
+      try {
+        winget install --id $wingetId --silent --accept-source-agreements --accept-package-agreements | Out-Null
+      } catch {
+        Warn "$label install did not complete automatically."
+      }
+      # winget updates the persistent PATH, but not this already-running setup window.
+      $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+      if (Get-Command $command -ErrorAction SilentlyContinue) { Say "    $label installed." "Green"; return $true }
+    }
+    Warn "$label is not installed. Horizon will still run; automatic updates need it."
+    Warn "Install it later from https://nodejs.org (Node) or https://git-scm.com (Git)."
+    return $false
   }
-  Warn "$label is not installed. Horizon will still run; automatic updates need it."
-  Warn "Install it later from https://nodejs.org (Node) or https://git-scm.com (Git)."
-  return $false
-}
 
-$haveNode = Ensure-Tool "node" "OpenJS.NodeJS.LTS" "Node.js"
-$haveGit = Ensure-Tool "git" "Git.Git" "Git"
+  $haveNode = Ensure-Tool "node" "OpenJS.NodeJS.LTS" "Node.js"
+  $haveGit = Ensure-Tool "git" "Git.Git" "Git"
+}
 
 # --- 4. Prepare dependencies for the updater (best effort) ----------------------------------
 if ($haveNode) {
@@ -158,27 +204,61 @@ if ($haveGit -and $updateRepoUrl -and -not (Test-Path -LiteralPath (Join-Path $t
   Warn "Horizon works fully; to enable hands-off updates later, set that value and re-run this installer."
 }
 
-# --- 6. Shortcuts + scheduled updater (delegates to the app's own installer) -----------------
-Step "Creating shortcuts and the update schedule"
-$appInstaller = Join-Path $targetDashboard "install.ps1"
-if (Test-Path -LiteralPath $appInstaller) {
-  try {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $appInstaller | Out-Null
-    Say "    Shortcuts ready (Desktop + Start menu)." "Green"
-  } catch {
-    Warn "Shortcut/updater setup reported an issue: $($_.Exception.Message)"
+# --- 6. Verify the app that the shortcuts will actually launch -------------------------------
+Step "Verifying the installed app"
+try {
+  $installedBuild = Get-Content -Raw -LiteralPath $targetBuildInfo | ConvertFrom-Json
+  $installedPackage = Get-Content -Raw -LiteralPath $targetPackage | ConvertFrom-Json
+  if (-not $installedBuild.commit -or -not $installedBuild.version -or -not $installedBuild.renderer) {
+    throw "The packaged build identity is incomplete."
   }
-} else {
-  Warn "App installer not found at $appInstaller; skipping shortcuts."
+  if ([string]$installedBuild.version -ne [string]$installedPackage.version) {
+    throw "The packaged renderer and app version do not match."
+  }
+  if ($buildCommit -and [string]$installedBuild.commit -ne $buildCommit) {
+    throw "The packaged renderer does not match this installer release."
+  }
+  $installedRenderer = Join-Path (Split-Path -Parent $targetBuildInfo) ([string]$installedBuild.renderer)
+  if (-not (Test-Path -LiteralPath $installedRenderer)) {
+    throw "The packaged renderer file is missing."
+  }
+  Say "    Verified Horizon $($installedPackage.version) at $(([string]$installedBuild.commit).Substring(0, 8))." "Green"
+} catch {
+  Warn "Installed app verification failed: $($_.Exception.Message)"
+  Warn "Horizon was not launched, so an older process cannot be mistaken for this release."
+  Pause-IfInteractive
+  exit 1
 }
 
-# --- 7. Launch -------------------------------------------------------------------------------
-Step "Launching Horizon"
-if (Test-Path -LiteralPath $targetApp) {
-  Start-Process -FilePath $targetApp -ArgumentList "--boot" | Out-Null
-  Say "    Horizon is starting." "Green"
+# --- 7. Shortcuts + scheduled updater (delegates to the app's own installer) -----------------
+if ($SkipShortcuts) {
+  Say "    Skipping shortcuts for installer verification." "DarkGray"
 } else {
-  Warn "Could not find Horizon.exe at $targetApp."
+  Step "Creating shortcuts and the update schedule"
+  $appInstaller = Join-Path $targetDashboard "install.ps1"
+  if (Test-Path -LiteralPath $appInstaller) {
+    try {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $appInstaller | Out-Null
+      Say "    Shortcuts ready (Desktop + Start menu)." "Green"
+    } catch {
+      Warn "Shortcut/updater setup reported an issue: $($_.Exception.Message)"
+    }
+  } else {
+    Warn "App installer not found at $appInstaller; skipping shortcuts."
+  }
+}
+
+# --- 8. Launch -------------------------------------------------------------------------------
+if ($SkipLaunch) {
+  Say "    Skipping launch for installer verification." "DarkGray"
+} else {
+  Step "Launching Horizon"
+  if (Test-Path -LiteralPath $targetApp) {
+    Start-Process -FilePath $targetApp -ArgumentList "--boot" | Out-Null
+    Say "    Horizon is starting." "Green"
+  } else {
+    Warn "Could not find Horizon.exe at $targetApp."
+  }
 }
 
 Write-Host ""
@@ -189,4 +269,4 @@ Write-Host "  Horizon will read that vault in place; only integration sign-ins r
 Write-Host "  A short setup reference remains in the extracted folder as SETUP.html." -ForegroundColor Gray
 Write-Host "  In-app help lives under Settings > Advanced > How to use Horizon." -ForegroundColor Gray
 Write-Host ""
-Read-Host "Press Enter to close"
+Pause-IfInteractive

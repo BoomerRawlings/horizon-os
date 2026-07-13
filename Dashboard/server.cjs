@@ -33,6 +33,7 @@ const NOW_PATH = path.join(ROOT, "Calendar", "Now.md");
 const DIST_DIR = path.join(__dirname, "dist");
 const LEGACY_PUBLIC_DIR = path.join(__dirname, "public");
 const APP_VERSION = (() => {
+  if (process.env.HORIZON_PACKAGED_VERSION) return String(process.env.HORIZON_PACKAGED_VERSION);
   try {
     return String(JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version || "unknown");
   } catch {
@@ -85,6 +86,10 @@ const HORIZON_NATIVE_APP_EXE = process.env.HORIZON_NATIVE_APP_EXE ||
 const REPO_DASHBOARD_DIR = path.resolve(process.env.HORIZON_SOURCE_DASHBOARD || path.join(APP_SOURCE_ROOT, "Dashboard"));
 const REPO_HIDDEN_RUNNER = path.join(REPO_DASHBOARD_DIR, "run-hidden.vbs");
 const REPO_PACK_SCRIPT = path.join(REPO_DASHBOARD_DIR, "scripts", "pack-native.ps1");
+const PACKAGED_BUILD_INFO_PATH = path.resolve(
+  process.env.HORIZON_PACKAGED_BUILD_INFO_PATH || path.join(DIST_DIR, "build-info.json"),
+);
+const IS_PACKAGED_RUNTIME = Boolean(process.env.HORIZON_NATIVE_APP_EXE);
 const INTEGRATION_SETTINGS_PATH = path.join(HORIZON_APP_DATA_DIR, "integration-settings.json");
 const INTEGRATION_RUN_LOG_DIR = path.join(ROOT, "Runs", "IntegrationTests");
 const PORT = Number(process.env.PORT || 3873);
@@ -840,8 +845,29 @@ function isAppUpdatePath(filePath) {
   return filePath.startsWith("Dashboard/");
 }
 
+function packageVersionAt(filePath) {
+  try {
+    return String(JSON.parse(fs.readFileSync(filePath, "utf8")).version || "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
+function packagedBuildInfo() {
+  try {
+    const value = JSON.parse(fs.readFileSync(PACKAGED_BUILD_INFO_PATH, "utf8"));
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 async function updateSnapshot(fetchRemote) {
   const checkedAt = nowIso();
+  const sourceVersion = packageVersionAt(path.join(REPO_DASHBOARD_DIR, "package.json"));
+  const packagedBuild = packagedBuildInfo();
+  const packagedCommit = String(packagedBuild?.commit || "").trim() || null;
+  const packagedVersion = APP_VERSION;
   const unavailable = (message, checkState = "unsupported") => ({
     branch: null,
     checkedAt,
@@ -851,7 +877,12 @@ async function updateSnapshot(fetchRemote) {
     fetchFailed: checkState === "fetch_failed",
     latest: null,
     message,
+    packageStale: sourceVersion !== "unknown" && packagedVersion !== sourceVersion,
+    packagedCommit,
+    packagedVersion,
     remote: null,
+    sourceUpdateAvailable: false,
+    sourceVersion,
     supported: false,
     updateAvailable: false,
     upstream: null,
@@ -908,9 +939,20 @@ async function updateSnapshot(fetchRemote) {
     .map(statusPathFromPorcelain)
     .filter(isAppUpdatePath);
   const dirty = trackedChanges.length > 0;
-  const updateAvailable = !fetchFailed && current !== latest;
-  let checkState = updateAvailable ? "update_available" : "current";
-  let message = updateAvailable ? "An update is available." : "Horizon is up to date.";
+  const sourceUpdateAvailable = current !== latest;
+  const versionMismatch = sourceVersion !== "unknown" && packagedVersion !== sourceVersion;
+  const commitMismatch = Boolean(packagedCommit && packagedCommit !== current);
+  const missingPackagedIdentity = IS_PACKAGED_RUNTIME && !packagedCommit;
+  const packageStale = versionMismatch || commitMismatch || missingPackagedIdentity;
+  const updateAvailable = !fetchFailed && (sourceUpdateAvailable || packageStale);
+  let checkState = sourceUpdateAvailable ? "update_available" : packageStale ? "package_stale" : "current";
+  let message = sourceUpdateAvailable
+    ? packageStale
+      ? "An update is available, and the installed app also needs rebuilding."
+      : "An update is available."
+    : packageStale
+      ? "Horizon source is current, but the installed app is still an older build. Repair is available."
+      : "Horizon is up to date.";
   if (fetchFailed) {
     checkState = "fetch_failed";
     message = "Horizon could not refresh the update source. The hashes below are only the last known values; retry when online.";
@@ -930,7 +972,12 @@ async function updateSnapshot(fetchRemote) {
     fetchFailed,
     latest,
     message,
+    packageStale,
+    packagedCommit,
+    packagedVersion,
     remote,
+    sourceUpdateAvailable,
+    sourceVersion,
     supported: true,
     updateAvailable,
     upstream,
@@ -6025,8 +6072,11 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/api/health") {
       const vault = vaultStructureStatus(ROOT);
+      const buildInfo = packagedBuildInfo();
       sendJson(res, 200, {
         app: "rawlings-os",
+        buildCommit: String(buildInfo?.commit || "").trim() || null,
+        buildRenderer: String(buildInfo?.renderer || "").trim() || null,
         version: APP_VERSION,
         ui: "horizon-react-vite",
         staticRoot: path.basename(staticRoot()),

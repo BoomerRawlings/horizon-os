@@ -4,6 +4,8 @@ $dashboard = $PSScriptRoot
 $root = (Resolve-Path -LiteralPath (Join-Path $dashboard "..")).Path
 $hiddenRunner = Join-Path $dashboard "run-hidden.vbs"
 $nativeApp = Join-Path $dashboard "native-dist\win-unpacked\Horizon.exe"
+$nativeBuildInfo = Join-Path $dashboard "native-dist\win-unpacked\resources\app\dist\build-info.json"
+$nativePackage = Join-Path $dashboard "native-dist\win-unpacked\resources\app\package.json"
 $wscript = Join-Path $env:WINDIR "System32\wscript.exe"
 $port = 3873
 $log = Join-Path $env:TEMP "horizon-os-dev-update.log"
@@ -62,6 +64,21 @@ function Get-NodeCommand {
   return $null
 }
 
+function Read-JsonFile([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  try { return Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json } catch { return $null }
+}
+
+function Test-NativePackageStale([string]$SourceCommit) {
+  $sourcePackage = Read-JsonFile (Join-Path $dashboard "package.json")
+  $packagedPackage = Read-JsonFile $nativePackage
+  $buildInfo = Read-JsonFile $nativeBuildInfo
+  if (-not $sourcePackage -or -not $packagedPackage -or -not $buildInfo) { return $true }
+  return [string]$sourcePackage.version -ne [string]$packagedPackage.version `
+    -or [string]$buildInfo.version -ne [string]$sourcePackage.version `
+    -or [string]$buildInfo.commit -ne $SourceCommit
+}
+
 function Start-HiddenDashboardScript {
   param([Parameter(Mandatory = $true)][string]$ScriptName)
 
@@ -104,8 +121,9 @@ try {
     $upstream = "origin/$branch"
   }
   $latest = Invoke-Git -Arguments @("rev-parse", $upstream)
+  $packageStale = Test-NativePackageStale $current
 
-  if ($current -eq $latest) {
+  if ($current -eq $latest -and -not $packageStale) {
     Write-UpdateLog "Already up to date."
     exit 0
   }
@@ -131,8 +149,12 @@ try {
     Start-Sleep -Milliseconds 700
   }
 
-  Write-UpdateLog "Pulling update from $upstream."
-  Invoke-Git -Arguments @("pull", "--ff-only") | Out-Null
+  if ($current -ne $latest) {
+    Write-UpdateLog "Pulling update from $upstream."
+    Invoke-Git -Arguments @("pull", "--ff-only") | Out-Null
+  } else {
+    Write-UpdateLog "Source is current, but the packaged app is stale. Rebuilding it now."
+  }
 
   $node = Get-NodeCommand
   if (-not $node) {
@@ -147,12 +169,6 @@ try {
       throw "npm ci failed."
     }
 
-    Write-UpdateLog "Building Horizon OS."
-    & npm run build | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-      throw "npm run build failed."
-    }
-
     Write-UpdateLog "Packaging Horizon native app."
     # native:pack:safe builds the web bundle, packages Electron to a temp dir OUTSIDE the
     # vault, verifies it, and only then mirrors it into native-dist. The previous call here
@@ -161,6 +177,10 @@ try {
     & npm run native:pack:safe | Out-Null
     if ($LASTEXITCODE -ne 0) {
       throw "npm run native:pack:safe failed."
+    }
+    $installedCommit = Invoke-Git -Arguments @("rev-parse", "HEAD")
+    if (Test-NativePackageStale $installedCommit) {
+      throw "The packaged app did not match the updated source after packaging."
     }
   } finally {
     Pop-Location
