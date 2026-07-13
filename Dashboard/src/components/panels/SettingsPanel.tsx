@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import packageMetadata from "../../../package.json";
 import {
   Bell,
   CalendarCheck,
@@ -26,6 +27,12 @@ import { integrationIconSrcFor } from "../../data/integrationIcons";
 import { loadAppSettings, saveAppSettings, type AppSettings } from "../../data/appSettings";
 import { MOTION_TIMING } from "../../data/motionSystem";
 import { accentThemes, backgroundThemes } from "../../data/themeSystem";
+import {
+  loadUpdateCheckSnapshot,
+  saveUpdateCheckSnapshot,
+  UPDATE_STATUS_EVENT,
+  type UpdateCheckSnapshot,
+} from "../../data/updateStatus";
 import type { IntegrationConnection, IntegrationStatus, ProfileSettings, SettingsOpenTarget, SettingsSectionId } from "../../types";
 import { playFocusTransitionSound, warmFocusAudio } from "../../utils/focusFeedback";
 import { IntegrationSetupDialog } from "./IntegrationSetupDialog";
@@ -42,18 +49,6 @@ type SettingsPanelProps = {
   profile: ProfileSettings;
 };
 
-type UpdateSnapshot = {
-  branch?: string;
-  current?: string;
-  dirty?: boolean;
-  latest?: string;
-  message: string;
-  supported: boolean;
-  updateAvailable?: boolean;
-  restarting?: boolean;
-  upstream?: string;
-};
-
 type StartupSnapshot = {
   launchAtStartup: boolean;
   message: string;
@@ -62,6 +57,8 @@ type StartupSnapshot = {
 };
 
 type SettingsContentPhase = "idle" | "leaving" | "entering";
+
+const APP_VERSION = String(packageMetadata.version || "unknown");
 
 const settingsSections: Array<{ id: SettingsSectionId; label: string; icon: typeof SlidersHorizontal }> = [
   { id: "general", label: "General", icon: SlidersHorizontal },
@@ -232,7 +229,7 @@ function VolumeSlider({
   );
 }
 
-function shortHash(value?: string) {
+function shortHash(value?: string | null) {
   return value ? value.slice(0, 7) : "unknown";
 }
 
@@ -245,6 +242,14 @@ function sectionForTarget(target?: SettingsOpenTarget): SettingsSectionId {
 function sectionIndex(sectionId: SettingsSectionId) {
   const index = settingsSections.findIndex((section) => section.id === sectionId);
   return index >= 0 ? index : 0;
+}
+
+function updateCheckTimeLabel(snapshot: UpdateCheckSnapshot | null) {
+  if (!snapshot?.checkedAt) return "";
+  const checkedAt = new Date(snapshot.checkedAt);
+  if (Number.isNaN(checkedAt.getTime())) return "";
+  const source = snapshot.checkSource === "automatic" ? "automatically" : "manually";
+  return `Last checked ${source} at ${checkedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
 }
 
 export function SettingsPanel({
@@ -272,7 +277,7 @@ export function SettingsPanel({
   const [updatingStartup, setUpdatingStartup] = useState(false);
   const [restartingApp, setRestartingApp] = useState(false);
   const [selectingVault, setSelectingVault] = useState(false);
-  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateSnapshot | null>(null);
+  const [updateSnapshot, setUpdateSnapshot] = useState<UpdateCheckSnapshot | null>(() => loadUpdateCheckSnapshot());
   const closeTimerRef = useRef<number | null>(null);
   const messageTimerRef = useRef<number | null>(null);
   const sectionSwapTimerRef = useRef<number | null>(null);
@@ -292,6 +297,16 @@ export function SettingsPanel({
         window.clearTimeout(sectionSwapTimerRef.current);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    function handleUpdateStatus(event: Event) {
+      const detail = (event as CustomEvent<UpdateCheckSnapshot>).detail;
+      if (detail) setUpdateSnapshot(detail);
+    }
+
+    window.addEventListener(UPDATE_STATUS_EVENT, handleUpdateStatus);
+    return () => window.removeEventListener(UPDATE_STATUS_EVENT, handleUpdateStatus);
   }, []);
 
   useEffect(() => {
@@ -545,15 +560,25 @@ export function SettingsPanel({
     setMessage("Checking for updates...");
     try {
       const response = await fetch("/api/update/check");
-      const data = (await response.json()) as UpdateSnapshot;
-      setUpdateSnapshot(data);
-      setMessage(data.message || "Update check finished.");
+      const data = (await response.json()) as UpdateCheckSnapshot;
+      if (!response.ok) throw new Error(data.message || "Update check failed.");
+      const saved = saveUpdateCheckSnapshot(data, "manual");
+      setUpdateSnapshot(saved);
+      setMessage(saved.message || "Update check finished.");
     } catch {
-      setUpdateSnapshot({
-        message: "Update checks are available after relaunching through the Horizon OS launcher.",
-        supported: false,
-      });
-      setMessage("Update checks need the local launcher.");
+      const saved = saveUpdateCheckSnapshot(
+        {
+          checkState: "fetch_failed",
+          fetchFailed: true,
+          message: "Horizon could not reach the updater. Retry when the laptop is online.",
+          supported: false,
+          updateAvailable: false,
+          version: APP_VERSION,
+        },
+        "manual",
+      );
+      setUpdateSnapshot(saved);
+      setMessage(saved.message);
     } finally {
       setCheckingUpdates(false);
     }
@@ -565,9 +590,10 @@ export function SettingsPanel({
     setMessage("Installing update...");
     try {
       const response = await fetch("/api/update/apply", { method: "POST" });
-      const data = (await response.json()) as UpdateSnapshot;
-      setUpdateSnapshot(data);
-      setMessage(data.message || "Update request sent.");
+      const data = (await response.json()) as UpdateCheckSnapshot;
+      const saved = saveUpdateCheckSnapshot(data, "manual");
+      setUpdateSnapshot(saved);
+      setMessage(saved.message || "Update request sent.");
     } catch {
       setMessage("Update install could not start from this preview.");
     } finally {
@@ -580,7 +606,7 @@ export function SettingsPanel({
     setMessage("Launching Horizon OS...");
     try {
       const response = await fetch("/api/update/restart", { method: "POST" });
-      const data = (await response.json()) as UpdateSnapshot;
+      const data = (await response.json()) as UpdateCheckSnapshot;
       if (!response.ok || !data.restarting) {
         setMessage(data.message || "Relaunch command could not be started.");
         return;
@@ -914,8 +940,8 @@ export function SettingsPanel({
               <img alt="" className="h-16 w-16 rounded-2xl border border-white/10 object-cover" src="/horizon-os-icon.png" />
               <div>
                 <div className="text-lg font-semibold text-white">Horizon OS</div>
-                <div className="mt-1 text-xs text-slate-500">Dashboard prototype 0.2.0</div>
-                <div className="mt-2 text-xs text-slate-400">Local launcher updates from the connected Git repository.</div>
+                <div className="mt-1 text-xs text-slate-500">Horizon {APP_VERSION}</div>
+                <div className="mt-2 text-xs text-slate-400">Installed locally; update status is verified against the connected repository.</div>
               </div>
             </div>
           </SettingCard>
@@ -951,13 +977,23 @@ export function SettingsPanel({
               </button>
             </div>
             <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4 text-sm text-slate-300">
-              <div>{updateSnapshot?.message ?? "No update check has been run yet."}</div>
+              <div>{updateSnapshot?.message ?? "No update check has been recorded yet."}</div>
+              {updateCheckTimeLabel(updateSnapshot) ? (
+                <div className="mt-1 text-xs text-slate-500">{updateCheckTimeLabel(updateSnapshot)}</div>
+              ) : null}
               {updateSnapshot ? (
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                  <div>Version: {updateSnapshot.version || APP_VERSION}</div>
+                  <div>Status: {updateSnapshot.checkState?.replaceAll("_", " ") || "checked"}</div>
                   <div>Current: {shortHash(updateSnapshot.current)}</div>
                   <div>Latest: {shortHash(updateSnapshot.latest)}</div>
                   <div>Branch: {updateSnapshot.branch ?? "unknown"}</div>
                   <div>Upstream: {updateSnapshot.upstream ?? "unknown"}</div>
+                </div>
+              ) : null}
+              {updateSnapshot?.fetchFailed || updateSnapshot?.checkState === "unsupported" ? (
+                <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-xs text-amber-200">
+                  This result is not an “up to date” confirmation. Horizon could not refresh the update source.
                 </div>
               ) : null}
               {updateSnapshot?.dirty ? (
@@ -995,7 +1031,7 @@ export function SettingsPanel({
                   </button>
                 ))}
               </div>
-              <p className="mt-1.5 text-[11px] text-slate-500">Saved for later - only the manual check above is active today.</p>
+              <p className="mt-1.5 text-[11px] text-slate-500">Stable is active today. Additional update channels are planned.</p>
             </div>
           </SettingCard>
         </div>

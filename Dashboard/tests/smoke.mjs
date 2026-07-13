@@ -55,8 +55,19 @@ async function waitForHealth(tries = 40) {
 
 const health = await waitForHealth();
 if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
+if (health.version !== "0.2.4") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
-ok("/api/health identifies rawlings-os and its ready active vault");
+ok("/api/health identifies Horizon 0.2.4 and its ready active vault");
+
+const updateResponse = await fetch(`${BASE}/api/update/check`);
+const update = await updateResponse.json();
+if (!updateResponse.ok || update.version !== health.version || !update.checkedAt || !update.checkState) {
+  fail(`/api/update/check returned an incomplete status: ${JSON.stringify(update)}`);
+}
+if (update.fetchFailed && /up to date/i.test(update.message || "")) {
+  fail("/api/update/check claimed Horizon was current after its fetch failed");
+}
+ok(`/api/update/check returned a truthful ${update.checkState} status for Horizon ${update.version}`);
 
 const constellationResponse = await fetch(`${BASE}/api/constellation`);
 const constellationHtml = await constellationResponse.text();

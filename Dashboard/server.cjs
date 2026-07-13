@@ -32,6 +32,13 @@ const ITEMS_DIR = path.join(ROOT, "Calendar", "Items");
 const NOW_PATH = path.join(ROOT, "Calendar", "Now.md");
 const DIST_DIR = path.join(__dirname, "dist");
 const LEGACY_PUBLIC_DIR = path.join(__dirname, "public");
+const APP_VERSION = (() => {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version || "unknown");
+  } catch {
+    return "unknown";
+  }
+})();
 const CONSTELLATION_BUNDLED_PATHS = [
   path.join(DIST_DIR, "constellation.html"),
   path.join(LEGACY_PUBLIC_DIR, "constellation.html"),
@@ -834,38 +841,66 @@ function isAppUpdatePath(filePath) {
 }
 
 async function updateSnapshot(fetchRemote) {
-  if (!fs.existsSync(path.join(APP_SOURCE_ROOT, ".git")) || !fs.existsSync(path.join(REPO_DASHBOARD_DIR, "package.json"))) {
-    return {
-      branch: null,
-      current: null,
-      dirty: false,
-      latest: null,
-      message: "This installed build is updated by installing a newer Horizon package.",
-      supported: false,
-      updateAvailable: false,
-      upstream: null,
-    };
-  }
-  const branch = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
-  const upstream = await trackedBranch();
+  const checkedAt = nowIso();
+  const unavailable = (message, checkState = "unsupported") => ({
+    branch: null,
+    checkedAt,
+    checkState,
+    current: null,
+    dirty: false,
+    fetchFailed: checkState === "fetch_failed",
+    latest: null,
+    message,
+    remote: null,
+    supported: false,
+    updateAvailable: false,
+    upstream: null,
+    version: APP_VERSION,
+  });
 
+  if (!fs.existsSync(path.join(APP_SOURCE_ROOT, ".git")) || !fs.existsSync(path.join(REPO_DASHBOARD_DIR, "package.json"))) {
+    return unavailable("This Horizon installation is not connected to an update checkout. Run the current installer once to repair it.");
+  }
+
+  let branch;
+  let current;
+  let remote = null;
+  let upstream;
+  try {
+    branch = await git(["rev-parse", "--abbrev-ref", "HEAD"]);
+    current = await git(["rev-parse", "HEAD"]);
+    upstream = await trackedBranch();
+    try {
+      remote = await git(["remote", "get-url", "origin"]);
+    } catch {
+      remote = null;
+    }
+  } catch {
+    return unavailable("Horizon found its update checkout, but Git could not read it. Run the current installer once to repair the updater.");
+  }
+
+  let fetchFailed = false;
   if (fetchRemote) {
     try {
       await git(["fetch", "--prune", "origin"], { timeout: 90_000 });
     } catch {
-      // A fetch failure should still return local update state when possible.
+      fetchFailed = true;
     }
   }
 
-  const current = await git(["rev-parse", "HEAD"]);
   let latest = current;
   try {
     latest = await git(["rev-parse", upstream]);
   } catch {
-    latest = current;
+    fetchFailed = true;
   }
 
-  const status = await git(["status", "--porcelain"]);
+  let status = "";
+  try {
+    status = await git(["status", "--porcelain"]);
+  } catch {
+    return unavailable("Horizon could not inspect its update checkout. Run the current installer once to repair the updater.");
+  }
   const trackedChanges = status
     .split("\n")
     .map((line) => line.trim())
@@ -873,21 +908,33 @@ async function updateSnapshot(fetchRemote) {
     .map(statusPathFromPorcelain)
     .filter(isAppUpdatePath);
   const dirty = trackedChanges.length > 0;
-  const updateAvailable = current !== latest;
-  let message = updateAvailable ? "An update is available." : "Horizon OS is up to date.";
-  if (dirty && updateAvailable) {
-    message = "An update is available, but local changes need to be saved first.";
+  const updateAvailable = !fetchFailed && current !== latest;
+  let checkState = updateAvailable ? "update_available" : "current";
+  let message = updateAvailable ? "An update is available." : "Horizon is up to date.";
+  if (fetchFailed) {
+    checkState = "fetch_failed";
+    message = "Horizon could not refresh the update source. The hashes below are only the last known values; retry when online.";
+  } else if (dirty) {
+    checkState = "dirty";
+    message = updateAvailable
+      ? "An update is available, but local changes need to be saved first."
+      : "The update source is current, but local app changes are present.";
   }
 
   return {
     branch,
+    checkedAt,
+    checkState,
     current,
     dirty,
+    fetchFailed,
     latest,
     message,
+    remote,
     supported: true,
     updateAvailable,
     upstream,
+    version: APP_VERSION,
   };
 }
 
@@ -1975,6 +2022,13 @@ function startDetachedRepack({ relaunch = true } = {}) {
 async function applyUpdate() {
   const before = await updateSnapshot(true);
   if (!before.supported) return { ...before, restarting: false };
+  if (before.fetchFailed) {
+    return {
+      ...before,
+      message: "Update installation cannot start until Horizon can refresh the update source.",
+      restarting: false,
+    };
+  }
   if (before.dirty) {
     return {
       ...before,
@@ -5973,6 +6027,7 @@ async function handle(req, res) {
       const vault = vaultStructureStatus(ROOT);
       sendJson(res, 200, {
         app: "rawlings-os",
+        version: APP_VERSION,
         ui: "horizon-react-vite",
         staticRoot: path.basename(staticRoot()),
         vaultPath: ROOT,

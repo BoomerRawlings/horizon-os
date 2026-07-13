@@ -27,6 +27,7 @@ import { useCalendarItems } from "./hooks/useCalendarItems";
 import { loadIntegrationConnections, loadProfileSettings, saveIntegrationConnections, saveProfileSettings } from "./data/profile";
 import { APP_SETTINGS_STORAGE_KEY, APP_SETTINGS_UPDATED_EVENT, loadAppSettings, saveAppSettings, type AppSettings } from "./data/appSettings";
 import { MOTION_TIMING } from "./data/motionSystem";
+import { saveUpdateCheckSnapshot, type UpdateCheckSnapshot } from "./data/updateStatus";
 import type { FileBrowserSourceId, HorizonView, IntegrationConnection, ProfileSettings, SettingsOpenTarget } from "./types";
 import {
   playFocusStartSound,
@@ -50,17 +51,6 @@ type WorkspaceScreen =
   | "projects"
   | "sandbox"
   | "development-sandbox";
-type UpdateCheckSnapshot = {
-  branch?: string;
-  current?: string;
-  dirty?: boolean;
-  latest?: string;
-  message?: string;
-  supported?: boolean;
-  updateAvailable?: boolean;
-  upstream?: string;
-};
-
 function bootRequestedFromUrl() {
   if (typeof window === "undefined") {
     return false;
@@ -782,26 +772,38 @@ export function App() {
 
     let cancelled = false;
 
-    async function autoUpdate() {
+    async function autoCheckForUpdates() {
       try {
         const checkResponse = await fetch("/api/update/check");
-        if (!checkResponse.ok) {
-          return;
-        }
-
         const snapshot = (await checkResponse.json()) as UpdateCheckSnapshot;
-        if (cancelled || !snapshot.supported || snapshot.dirty || !snapshot.updateAvailable) {
-          return;
-        }
-
-        await fetch("/api/update/apply", { method: "POST" });
+        if (cancelled) return;
+        saveUpdateCheckSnapshot(
+          checkResponse.ok
+            ? snapshot
+            : {
+                ...snapshot,
+                message: snapshot.message || "Horizon could not complete its automatic update check.",
+                supported: false,
+              },
+          "automatic",
+        );
       } catch {
-        return;
+        if (cancelled) return;
+        saveUpdateCheckSnapshot(
+          {
+            checkState: "fetch_failed",
+            fetchFailed: true,
+            message: "Horizon could not reach the local updater during its automatic check.",
+            supported: false,
+            updateAvailable: false,
+          },
+          "automatic",
+        );
       }
     }
 
     const timer = window.setTimeout(() => {
-      void autoUpdate();
+      void autoCheckForUpdates();
     }, 900);
 
     return () => {

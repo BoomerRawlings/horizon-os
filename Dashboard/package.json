@@ -1,6 +1,6 @@
 {
   "name": "rawlings-os-dashboard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "smoke": "node tests/smoke.mjs",
     "test:heuristics": "node tests/heuristics.test.mjs",
+    "test:updater": "node tests/updaterFailure.test.mjs",
     "test:vault": "node tests/vaultConnection.test.cjs",
     "privacy:scan": "node scripts/privacy-scan.mjs"
   },
