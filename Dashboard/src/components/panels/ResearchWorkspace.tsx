@@ -28,10 +28,10 @@ import {
 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import {
-  ResearchDeskCanvas,
-  type ResearchDeskCanvasSelection,
-  type ResearchDeskCanvasStickyDraft,
-} from "./ResearchDeskCanvas";
+  InfiniteResearchCanvas,
+  type InfiniteResearchSelection,
+  type InfiniteResearchStickyDraft,
+} from "./InfiniteResearchCanvas";
 
 type ReadingStatus = "to_read" | "skimming" | "read" | "annotated";
 type SortMode = "author" | "date" | "subject" | "reading" | "recent";
@@ -48,6 +48,8 @@ export type ResearchPaper = {
   datePublished: string;
   dogEared: boolean;
   doi: string;
+  documentAvailable: boolean;
+  documentUrl: string;
   duplicateCopies: number;
   id: string;
   metadataComplete: boolean;
@@ -56,6 +58,7 @@ export type ResearchPaper = {
   needsCitekey: boolean;
   path: string;
   primarySubject: string;
+  previewUrl: string;
   readingStatus: ReadingStatus;
   source: "vault" | "zotero" | "vault+zotero";
   status: string;
@@ -367,6 +370,10 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     () => buildPaperStacks(papers, sortMode),
     [papers, sortMode],
   );
+  const boardStacks = useMemo(
+    () => buildPaperStacks(papers, "subject"),
+    [papers],
+  );
 
   const selectedPaper = selection?.kind === "paper" ? papers.find((paper) => paper.id === selection.path) || null : null;
   const selectedIdea = selection?.kind === "idea" ? ideas.find((idea) => idea.path === selection.path) || null : null;
@@ -515,7 +522,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setEditingIdea({ path: idea.path, text: idea.body || idea.preview || idea.topic });
   }
 
-  async function createCanvasSticky(draft: ResearchDeskCanvasStickyDraft) {
+  async function createCanvasSticky(draft: InfiniteResearchStickyDraft) {
     const body = draft.text.trim();
     if (!body) return null;
     const response = await fetch("/api/research/ideas", {
@@ -646,7 +653,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   function changeSort(nextMode: SortMode) {
     setSortMode(nextMode);
     try { localStorage.setItem(RESEARCH_DESK_SORT_KEY, nextMode); } catch { /* local storage is optional */ }
-    setMessage(`Sorted by ${nextMode === "reading" ? "reading stage" : nextMode === "recent" ? "recently added" : nextMode}.`);
+    setMessage(`Explore arranged by ${nextMode === "reading" ? "reading stage" : nextMode === "recent" ? "recently added" : nextMode}. Your Board stayed unchanged.`);
   }
 
   async function openVaultPaper(paper: ResearchPaper) {
@@ -779,7 +786,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setHeldIdeaPath(idea.path);
   }
 
-  function handleCanvasSelection(next: ResearchDeskCanvasSelection) {
+  function handleCanvasSelection(next: InfiniteResearchSelection) {
     setSelection(next as DeskSelection);
     if (next?.kind === "idea") setHeldIdeaPath(next.path);
   }
@@ -807,8 +814,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
             <p className="mt-0.5 truncate text-xs text-slate-400">
               {sources
                 ? hasActiveFilter
-                  ? `${visiblePapers.length} matching ${visiblePapers.length === 1 ? "paper" : "papers"} across ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}`
-                  : `${sources.mergedCount} papers in ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}`
+                  ? `${visiblePapers.length} ${visiblePapers.length === 1 ? "match" : "matches"} · Board stays in place`
+                  : `${sources.mergedCount} papers · persistent Board + temporary Explore`
                 : "Your papers, reading stages, and connected notes in one place"}
             </p>
           </div>
@@ -873,8 +880,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       ) : null}
 
       <div className="research-desk-canvas research-desk-shell">
-        <ResearchDeskCanvas
-          ariaLabel="Research desk. Pan freely in every direction, zoom from 2 to 800 percent, spread piles in place, move papers, and use link handles to connect them."
+        <InfiniteResearchCanvas
+          ariaLabel="Infinite Research. Use Board for persistent spatial work, Explore for animated sorting and filtering, and double-click a paper to read it."
+          boardStacks={boardStacks}
+          exploreLabel={`Arranged by ${sortMode === "reading" ? "reading stage" : sortMode === "recent" ? "recently added" : sortMode}`}
+          exploreStacks={deskStacks}
           ideas={ideas}
           loading={loading}
           matchingPaperIds={hasActiveFilter ? visiblePapers.map((paper) => paper.id) : undefined}
@@ -882,12 +892,12 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           onAttachIdeaToPaper={attachIdeaToPaper}
           onConnectPapers={togglePaperConnection}
           onCreateSticky={createCanvasSticky}
+          onDetachIdeaFromPaper={detachIdeaFromPaper}
           onOpenIdeaDetails={openIdeaDetails}
           onOpenPaperDetails={openPaperDetails}
           onSelectionChange={handleCanvasSelection}
           paperConnections={paperConnections}
           selection={selection}
-          stacks={deskStacks}
         />
 
         {inspectorOpen ? <aside className={`research-reading-sheet research-reading-sheet-overlay ${selectedIdea ? "research-reading-sheet-idea" : ""}`} ref={readingSheetRef}>

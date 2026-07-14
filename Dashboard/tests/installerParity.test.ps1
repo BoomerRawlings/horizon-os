@@ -39,6 +39,8 @@ foreach ($releaseGate in @(
   "smoke",
   "test:heuristics",
   "test:research-desk",
+  "test:infinite-research",
+  "test:research-documents",
   "test:updater",
   "test:updater-parity",
   "test:installer-parity"
@@ -92,6 +94,8 @@ foreach ($builderMarker in @(
   "smoke",
   "test:heuristics",
   "test:research-desk",
+  "test:infinite-research",
+  "test:research-documents",
   "test:updater",
   "test:updater-parity",
   "test:installer-parity",

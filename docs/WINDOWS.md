@@ -14,7 +14,11 @@ Do not download GitHub's automatic **Source code (zip)** files unless you want t
 
 ### Upgrading from 0.2.7
 
-Use the same three steps above. On its first start, Horizon 0.3.0 removes the old `Horizon OS Dev Auto Update` task and only the exact old Horizon shortcuts so the two versions cannot compete. It preserves your workspace, saved connections, launch-at-sign-in choice, and the old `%LOCALAPPDATA%\HorizonOS` app folder. That old folder is left untouched as a rollback copy and no longer runs automatically.
+Use the same three steps above. Horizon removes the old `Horizon OS Dev Auto Update` task and only the exact old Horizon shortcuts so the two versions cannot compete. It preserves your workspace, saved connections, launch-at-sign-in choice, and the old `%LOCALAPPDATA%\HorizonOS` app folder. That old folder is left untouched as a rollback copy and no longer runs automatically.
+
+### Upgrading from 0.3.0
+
+Close Horizon and run the current `Horizon-Setup.exe`. The installer updates the application in place and preserves your selected workspace, saved connections, integration credentials, Research Board layout, and launch-at-sign-in choice.
 
 ## Windows security prompt
 

@@ -37,7 +37,7 @@ If Horizon says Google sign-in is unavailable, you did not miss a step. The publ
 
 ## Microsoft
 
-Microsoft is a launcher in v0.3.0, not an in-Horizon data sync.
+Microsoft is currently a launcher, not an in-Horizon data sync.
 
 1. Open **Settings > Integrations > Microsoft**.
 2. Choose **Open Outlook** or **Open OneDrive**.

@@ -1,7 +1,7 @@
 {
   "name": "horizon",
   "productName": "Horizon",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A local-first desktop workspace for planning, research, capture, and focus.",
   "author": "Boomer Rawlings",
   "private": true,
@@ -20,6 +20,8 @@
     "smoke": "node tests/smoke.mjs",
     "test:heuristics": "node tests/heuristics.test.mjs",
     "test:research-desk": "node tests/researchDeskLayout.test.mjs",
+    "test:infinite-research": "node tests/researchInfiniteWorld.test.mjs",
+    "test:research-documents": "node tests/researchDocumentRoute.test.mjs",
     "test:updater": "node tests/updaterFailure.test.mjs",
     "test:updater-parity": "node tests/updaterParity.test.mjs",
     "test:installer-parity": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/installerParity.test.ps1",
@@ -92,5 +94,8 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.3",
     "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^6.1.200"
   }
 }

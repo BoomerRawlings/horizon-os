@@ -4613,6 +4613,79 @@ function finalizeResearchPaper(paper) {
   };
 }
 
+const RESEARCH_DOCUMENT_ROUTE_PREFIX = "/api/research/documents/";
+const RESEARCH_DOCUMENT_FIELDS = [
+  "pdf",
+  "pdf_path",
+  "attachment",
+  "attachment_path",
+  "file",
+  "file_path",
+  "document",
+  "document_path",
+];
+
+function researchDocumentUrl(reference) {
+  return reference ? `${RESEARCH_DOCUMENT_ROUTE_PREFIX}${encodeURIComponent(reference)}` : "";
+}
+
+function pathIsInside(candidate, parent) {
+  const resolvedCandidate = path.resolve(candidate).toLowerCase();
+  const resolvedParent = path.resolve(parent).toLowerCase();
+  return resolvedCandidate === resolvedParent || resolvedCandidate.startsWith(`${resolvedParent}${path.sep}`);
+}
+
+function cleanResearchDocumentReference(value) {
+  let text = String(value || "").trim();
+  if (!text || /^https?:/i.test(text) || /^file:/i.test(text)) return "";
+  const wiki = text.match(/^!?\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/);
+  const markdown = text.match(/^\[[^\]]*\]\(([^)]+)\)$/);
+  text = String(wiki?.[1] || markdown?.[1] || text)
+    .split("|")[0]
+    .split("#")[0]
+    .split("?")[0]
+    .replace(/^<|>$/g, "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  try { text = decodeURIComponent(text); } catch { /* Keep the literal path. */ }
+  return /\.pdf$/i.test(text) ? text : "";
+}
+
+function researchDocumentReferences(fields, raw) {
+  const references = RESEARCH_DOCUMENT_FIELDS.map((field) => fields[field]);
+  for (const match of String(raw || "").matchAll(/!?\[\[([^\]\n|#]+\.pdf)(?:#[^\]\n|]*)?(?:\|[^\]\n]*)?\]\]/gi)) {
+    references.push(match[1]);
+  }
+  for (const match of String(raw || "").matchAll(/\[[^\]\n]*\]\(([^)\n]+\.pdf(?:[?#][^)\n]*)?)\)/gi)) {
+    references.push(match[1]);
+  }
+  return [...new Set(references.map(cleanResearchDocumentReference).filter(Boolean))];
+}
+
+function vaultResearchDocumentPath(notePath, fields, raw) {
+  const noteDir = path.dirname(notePath);
+  const attachmentsDir = path.join(ROOT, "Research Papers", "Attachments");
+  for (const reference of researchDocumentReferences(fields, raw)) {
+    const normalized = reference.replace(/[\\/]+/g, path.sep).replace(/^[\\/]+/, "");
+    const candidates = path.isAbsolute(reference)
+      ? [path.resolve(reference)]
+      : [
+          path.resolve(noteDir, normalized),
+          path.resolve(ROOT, normalized),
+          path.resolve(attachmentsDir, path.basename(normalized)),
+        ];
+    for (const candidate of candidates) {
+      if (!pathIsInside(candidate, ROOT) || path.extname(candidate).toLowerCase() !== ".pdf") continue;
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        // Try the next unambiguous candidate.
+      }
+    }
+  }
+  return "";
+}
+
 function listVaultResearchPapers() {
   const dir = path.join(ROOT, "Research Papers");
   if (!fs.existsSync(dir)) return [];
@@ -4623,6 +4696,10 @@ function listVaultResearchPapers() {
     .filter(({ raw }) => readMarkdownFrontmatter(raw).type !== "zotero-library-shelf")
     .map(({ name, raw }) => {
       const fields = readMarkdownFrontmatter(raw);
+      const notePath = path.join(dir, name);
+      const documentPath = vaultResearchDocumentPath(notePath, fields, raw);
+      const id = `vault:Research Papers/${name}`;
+      const documentUrl = documentPath ? researchDocumentUrl(id) : "";
       const { citation, abstract, abstractLabel } = researchPaperParts(raw);
       const citekey = fields.citekey || path.basename(name, ".md");
       const identity = citationResearchIdentity(citation, citekey);
@@ -4649,11 +4726,14 @@ function listVaultResearchPapers() {
         datePublished,
         dogEared: fields.dog_eared === "true",
         doi: normalizeDoi(fields.doi || firstDoiFromText(raw)) || "unknown",
-        id: `vault:Research Papers/${name}`,
+        documentAvailable: Boolean(documentPath),
+        documentUrl,
+        id,
         metadataConflicts,
         needsCitekey: fields.needs_citekey === "true",
         path: `Research Papers/${name}`,
         primarySubject: fields.primary_subject || linkedSubjects[0] || "General Research",
+        previewUrl: documentUrl,
         readingStatus,
         source: "vault",
         status: fields.status || "unknown",
@@ -4721,38 +4801,42 @@ async function fetchZoteroDesktopPages(resource, query = {}) {
 async function readZoteroResearchLibrary({ force = false } = {}) {
   const cached = safeJsonRead(RESEARCH_LIBRARY_CACHE_PATH, null);
   const cachedAt = Date.parse(cached?.fetchedAt || "");
-  if (!force && cached && Number.isFinite(cachedAt) && Date.now() - cachedAt < RESEARCH_LIBRARY_CACHE_MAX_AGE_MS) {
+  const cacheHasDocuments = Number(cached?.version) >= 2 && Array.isArray(cached?.attachments);
+  if (!force && cached && cacheHasDocuments && Number.isFinite(cachedAt) && Date.now() - cachedAt < RESEARCH_LIBRARY_CACHE_MAX_AGE_MS) {
     return { ...cached, status: "cached" };
   }
 
   const { apiKey, localEnabled, userId } = zoteroCredentials();
   const useCloud = Boolean(apiKey && userId);
-  if (!useCloud && !localEnabled) return { collections: [], fetchedAt: null, items: [], status: "not_configured", userId: "" };
+  if (!useCloud && !localEnabled) return { attachments: [], collections: [], fetchedAt: null, items: [], status: "not_configured", userId: "", version: 2 };
   if (researchExternalIntegrationsDisabled()) {
-    return cached ? { ...cached, status: "cached" } : { collections: [], fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0" };
+    return cached ? { attachments: [], ...cached, status: "cached" } : { attachments: [], collections: [], fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0", version: 2 };
   }
 
   try {
-    const [items, collections] = useCloud
+    const [items, collections, attachments] = useCloud
       ? await Promise.all([
           fetchZoteroPages(userId, apiKey, "items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
           fetchZoteroPages(userId, apiKey, "collections", { format: "json" }),
+          fetchZoteroPages(userId, apiKey, "items", { format: "json", include: "data", itemType: "attachment" }),
         ])
       : await Promise.all([
           fetchZoteroDesktopPages("items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
           fetchZoteroDesktopPages("collections", { format: "json" }),
+          fetchZoteroDesktopPages("items", { format: "json", include: "data", itemType: "attachment" }),
         ]);
-    const next = { collections, fetchedAt: nowIso(), items, source: useCloud ? "cloud" : "desktop", userId: useCloud ? userId : "0", version: 1 };
+    const next = { attachments, collections, fetchedAt: nowIso(), items, source: useCloud ? "cloud" : "desktop", userId: useCloud ? userId : "0", version: 2 };
     writeJson(RESEARCH_LIBRARY_CACHE_PATH, next);
     return { ...next, status: "connected" };
   } catch (error) {
     if (useCloud && localEnabled) {
       try {
-        const [items, collections] = await Promise.all([
+        const [items, collections, attachments] = await Promise.all([
           fetchZoteroDesktopPages("items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
           fetchZoteroDesktopPages("collections", { format: "json" }),
+          fetchZoteroDesktopPages("items", { format: "json", include: "data", itemType: "attachment" }),
         ]);
-        const next = { collections, fetchedAt: nowIso(), items, source: "desktop", userId: "0", version: 1 };
+        const next = { attachments, collections, fetchedAt: nowIso(), items, source: "desktop", userId: "0", version: 2 };
         writeJson(RESEARCH_LIBRARY_CACHE_PATH, next);
         return { ...next, cloudError: error.message, status: "connected" };
       } catch {
@@ -4760,7 +4844,7 @@ async function readZoteroResearchLibrary({ force = false } = {}) {
       }
     }
     if (cached) return { ...cached, error: error.message, status: "stale" };
-    return { collections: [], error: error.message, fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0" };
+    return { attachments: [], collections: [], error: error.message, fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0", version: 2 };
   }
 }
 
@@ -4795,10 +4879,31 @@ function normalizedPublicationDate(value) {
   return text;
 }
 
+function zoteroPdfAttachment(library, parentKey) {
+  const source = library?.source === "desktop" ? "desktop" : "cloud";
+  return (Array.isArray(library?.attachments) ? library.attachments : [])
+    .filter((attachment) => {
+      const data = attachment?.data || {};
+      const isPdf = String(data.contentType || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(String(data.filename || ""));
+      if (!attachment?.key || data.parentItem !== parentKey || !isPdf) return false;
+      if (source === "cloud" && ["linked_file", "linked_url"].includes(data.linkMode)) return false;
+      return data.linkMode !== "linked_url";
+    })
+    .sort((a, b) => {
+      const aData = a.data || {};
+      const bData = b.data || {};
+      const aScore = (aData.contentType === "application/pdf" ? 4 : 0) + (aData.linkMode === "imported_file" ? 2 : 0) + (aData.filename ? 1 : 0);
+      const bScore = (bData.contentType === "application/pdf" ? 4 : 0) + (bData.linkMode === "imported_file" ? 2 : 0) + (bData.filename ? 1 : 0);
+      return bScore - aScore || String(a.key).localeCompare(String(b.key));
+    })[0] || null;
+}
+
 function zoteroPapers(library) {
   const collectionRoots = zoteroCollectionRoots(library.collections || []);
   return (library.items || []).map((item) => {
     const data = item.data || {};
+    const documentAttachment = zoteroPdfAttachment(library, item.key);
+    const documentUrl = documentAttachment ? researchDocumentUrl(`zotero-attachment:${documentAttachment.key}`) : "";
     const datePublished = normalizedPublicationDate(data.date);
     const citekey = `${researchAuthorLabel(zoteroCreators(data), "Unknown")}-${firstYearFromText(datePublished) || "n.d."}`;
     const subjects = [...new Set((data.collections || []).map((key) => collectionRoots.get(key)).filter(Boolean))];
@@ -4814,12 +4919,15 @@ function zoteroPapers(library) {
       datePublished: datePublished || "unknown",
       dogEared: false,
       doi: normalizeDoi(data.DOI || data.extra || data.url || data.title) || "unknown",
+      documentAvailable: Boolean(documentAttachment),
+      documentUrl,
       id: `zotero:${item.key}`,
       itemType: data.itemType || "document",
       metadataConflicts: [],
       needsCitekey: false,
       path: "",
       primarySubject,
+      previewUrl: documentUrl,
       readingStatus: "to_read",
       source: "zotero",
       status: "zotero",
@@ -5043,9 +5151,12 @@ function mergeResearchPapers(localPaper, zoteroPaper) {
     dateAdded: localPaper.dateAdded || zoteroPaper.dateAdded,
     datePublished: knownResearchValue(localPaper.datePublished) ? localPaper.datePublished : zoteroPaper.datePublished,
     doi: normalizeDoi(localPaper.doi) || normalizeDoi(zoteroPaper.doi) || "unknown",
+    documentAvailable: Boolean(localPaper.documentAvailable || zoteroPaper.documentAvailable),
+    documentUrl: localPaper.documentUrl || zoteroPaper.documentUrl || "",
     duplicateCopies: Math.max(localPaper.duplicateCopies || 1, zoteroPaper.duplicateCopies || 1),
     metadataConflicts: conflicts,
     primarySubject: zoteroPaper.primarySubject !== "Unsorted" ? zoteroPaper.primarySubject : localPaper.primarySubject,
+    previewUrl: localPaper.previewUrl || zoteroPaper.previewUrl || "",
     source: "vault+zotero",
     subjects: [...new Set([...(zoteroPaper.subjects || []), ...(localPaper.subjects || [])])],
     title: researchTitleIsPlaceholder(zoteroPaper.title, zoteroPaper.doi) ? localPaper.title : zoteroPaper.title,
@@ -5072,9 +5183,10 @@ async function listResearchLibrary({ enrich = false, force = false } = {}) {
   const remotePapers = collapseZoteroDuplicates(rawRemotePapers);
   const remoteByDoi = new Map(remotePapers.filter((paper) => normalizeDoi(paper.doi)).map((paper) => [normalizeDoi(paper.doi), paper]));
   const remoteByTitle = new Map(remotePapers.filter((paper) => normalizedResearchTitle(paper.title).length > 16).map((paper) => [normalizedResearchTitle(paper.title), paper]));
+  const remoteByKey = new Map(remotePapers.filter((paper) => paper.zoteroKey).map((paper) => [paper.zoteroKey, paper]));
   const matchedRemote = new Set();
   const merged = localPapers.map((paper) => {
-    const remote = remoteByDoi.get(normalizeDoi(paper.doi)) || remoteByTitle.get(normalizedResearchTitle(paper.title));
+    const remote = remoteByKey.get(paper.zoteroKey) || remoteByDoi.get(normalizeDoi(paper.doi)) || remoteByTitle.get(normalizedResearchTitle(paper.title));
     if (remote) matchedRemote.add(remote.id);
     return mergeResearchPapers(paper, remote);
   });
@@ -5127,6 +5239,150 @@ async function listResearchLibrary({ enrich = false, force = false } = {}) {
       zoteroCount: rawRemotePapers.length,
     },
   };
+}
+
+function researchByteRange(value, size) {
+  const match = String(value || "").trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match) return value ? { invalid: true } : null;
+  let start = match[1] ? Number(match[1]) : NaN;
+  let end = match[2] ? Number(match[2]) : NaN;
+  if (!match[1] && match[2]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    if (!Number.isFinite(start) || start < 0) return { invalid: true };
+    end = Number.isFinite(end) ? Math.min(end, size - 1) : size - 1;
+  }
+  if (start >= size || end < start) return { invalid: true };
+  return { end, start };
+}
+
+function researchDocumentHeaders(extra = {}) {
+  return {
+    "accept-ranges": "bytes",
+    "cache-control": "private, no-store, max-age=0",
+    "content-disposition": "inline",
+    "content-security-policy": "frame-ancestors 'self'",
+    "content-type": "application/pdf",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "SAMEORIGIN",
+    ...extra,
+  };
+}
+
+function sendLocalResearchDocument(req, res, filePath) {
+  const size = fs.statSync(filePath).size;
+  const range = researchByteRange(req.headers.range, size);
+  if (range?.invalid) {
+    res.writeHead(416, researchDocumentHeaders({ "content-range": `bytes */${size}` }));
+    res.end();
+    return;
+  }
+  if (range) {
+    res.writeHead(206, researchDocumentHeaders({
+      "content-length": String(range.end - range.start + 1),
+      "content-range": `bytes ${range.start}-${range.end}/${size}`,
+    }));
+    if (req.method === "HEAD") res.end();
+    else fs.createReadStream(filePath, { end: range.end, start: range.start }).pipe(res);
+    return;
+  }
+  res.writeHead(200, researchDocumentHeaders({ "content-length": String(size) }));
+  if (req.method === "HEAD") res.end();
+  else fs.createReadStream(filePath).pipe(res);
+}
+
+function vaultDocumentForPaperReference(reference) {
+  if (!String(reference).startsWith("vault:Research Papers/")) return "";
+  const relativeNotePath = String(reference).slice("vault:".length).replace(/[\\/]+/g, path.sep);
+  const researchRoot = path.join(ROOT, "Research Papers");
+  const notePath = path.resolve(ROOT, relativeNotePath);
+  if (!pathIsInside(notePath, researchRoot) || path.extname(notePath).toLowerCase() !== ".md") return "";
+  try {
+    const raw = fs.readFileSync(notePath, "utf8");
+    return vaultResearchDocumentPath(notePath, readMarkdownFrontmatter(raw), raw);
+  } catch {
+    return "";
+  }
+}
+
+function zoteroDownloadableAttachment(library, key) {
+  const attachment = (Array.isArray(library?.attachments) ? library.attachments : []).find((candidate) => candidate?.key === key);
+  if (!attachment) return null;
+  const data = attachment.data || {};
+  const isPdf = String(data.contentType || "").toLowerCase() === "application/pdf" || /\.pdf$/i.test(String(data.filename || ""));
+  if (!isPdf || data.linkMode === "linked_url") return null;
+  if (library.source !== "desktop" && data.linkMode === "linked_file") return null;
+  return attachment;
+}
+
+async function sendZoteroResearchDocument(req, res, attachmentKey) {
+  const library = await readZoteroResearchLibrary();
+  if (!zoteroDownloadableAttachment(library, attachmentKey)) {
+    sendJson(res, 404, { message: "That Zotero PDF is not available.", ok: false });
+    return;
+  }
+  const { apiKey, userId } = zoteroCredentials();
+  const desktop = library.source === "desktop";
+  if (!desktop && (!apiKey || !userId)) {
+    sendJson(res, 409, { message: "Reconnect Zotero to open this PDF.", ok: false });
+    return;
+  }
+  const remoteUrl = desktop
+    ? `http://127.0.0.1:23119/api/users/0/items/${encodeURIComponent(attachmentKey)}/file`
+    : `https://api.zotero.org/users/${encodeURIComponent(userId)}/items/${encodeURIComponent(attachmentKey)}/file`;
+  const headers = { Accept: "application/pdf", "Zotero-API-Version": "3" };
+  if (!desktop) headers["Zotero-API-Key"] = apiKey;
+  if (req.headers.range) headers.Range = String(req.headers.range);
+  const response = await fetch(remoteUrl, {
+    headers,
+    method: req.method === "HEAD" ? "HEAD" : "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok || (req.method !== "HEAD" && !response.body)) {
+    sendJson(res, response.status === 404 ? 404 : 502, {
+      message: response.status === 404 ? "Zotero could not find that PDF file." : `Zotero PDF request failed with HTTP ${response.status}.`,
+      ok: false,
+    });
+    return;
+  }
+  const forwarded = {};
+  for (const header of ["content-length", "content-range", "etag", "last-modified"]) {
+    const value = response.headers.get(header);
+    if (value) forwarded[header] = value;
+  }
+  res.writeHead(response.status, researchDocumentHeaders(forwarded));
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  for await (const chunk of response.body) res.write(Buffer.from(chunk));
+  res.end();
+}
+
+async function sendResearchDocument(req, res, reference) {
+  if (String(reference).startsWith("vault:")) {
+    const filePath = vaultDocumentForPaperReference(reference);
+    if (!filePath) {
+      sendJson(res, 404, { message: "No PDF is attached to that vault paper.", ok: false });
+      return;
+    }
+    sendLocalResearchDocument(req, res, filePath);
+    return;
+  }
+  if (String(reference).startsWith("zotero-attachment:")) {
+    const key = String(reference).slice("zotero-attachment:".length);
+    if (!/^[23456789ABCDEFGHIJKLMNPQRSTUVWXYZ]{8}$/i.test(key)) {
+      sendJson(res, 404, { message: "That Zotero PDF reference is invalid.", ok: false });
+      return;
+    }
+    await sendZoteroResearchDocument(req, res, key.toUpperCase());
+    return;
+  }
+  sendJson(res, 404, { message: "That research document is unavailable.", ok: false });
 }
 
 function researchMarkdownText(value) {
@@ -7075,6 +7331,12 @@ async function handle(req, res) {
     }
     if (req.method === "GET" && url.pathname === "/api/capture/actions") {
       sendJson(res, 200, { actions: captureActionMetadata() });
+      return;
+    }
+    if ((req.method === "GET" || req.method === "HEAD") && url.pathname.startsWith(RESEARCH_DOCUMENT_ROUTE_PREFIX)) {
+      let reference = "";
+      try { reference = decodeURIComponent(url.pathname.slice(RESEARCH_DOCUMENT_ROUTE_PREFIX.length)); } catch { /* Invalid references return 404 below. */ }
+      await sendResearchDocument(req, res, reference);
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/research/papers") {
