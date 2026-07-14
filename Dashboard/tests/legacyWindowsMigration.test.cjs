@@ -10,6 +10,7 @@ const {
   createScheduledTaskRunner,
   legacyWindowsPaths,
   migrateLegacyWindowsInstall,
+  repairCanonicalStartupShortcut,
 } = require("../electron/legacyWindowsMigration.cjs");
 
 function fixture(t) {
@@ -175,6 +176,49 @@ test("does not create a startup shortcut when the user had not enabled legacy st
   assert.equal(fs.existsSync(paths.canonicalStartupShortcut), false);
   for (const entry of paths.legacyShortcuts) assert.equal(fs.existsSync(entry.path), false, entry.id);
   assert.equal(fs.existsSync(paths.markerPath), true);
+});
+
+test("repairs only an existing canonical startup shortcut after the install directory changes", (t) => {
+  const { installedExe, paths, root } = fixture(t);
+  const oldExe = path.join(root, "OldPackageName", "Horizon.exe");
+  writeFile(paths.canonicalStartupShortcut, JSON.stringify({ target: oldExe }));
+  const writes = [];
+
+  const result = repairCanonicalStartupShortcut({
+    installedExe,
+    shortcutPath: paths.canonicalStartupShortcut,
+    readShortcut(shortcutPath) {
+      return JSON.parse(fs.readFileSync(shortcutPath, "utf8"));
+    },
+    writeShortcut(shortcutPath, target) {
+      writes.push({ shortcutPath, target });
+      writeFile(shortcutPath, JSON.stringify({ target }));
+    },
+  });
+
+  assert.deepEqual(result, { found: true, repaired: true, skippedNonFile: false });
+  assert.deepEqual(writes, [{ shortcutPath: paths.canonicalStartupShortcut, target: installedExe }]);
+  assert.equal(JSON.parse(fs.readFileSync(paths.canonicalStartupShortcut, "utf8")).target, installedExe);
+});
+
+test("leaves a current or disabled canonical startup shortcut unchanged", (t) => {
+  const { installedExe, paths } = fixture(t);
+  let writes = 0;
+  const repair = () => repairCanonicalStartupShortcut({
+    installedExe,
+    shortcutPath: paths.canonicalStartupShortcut,
+    readShortcut(shortcutPath) {
+      return JSON.parse(fs.readFileSync(shortcutPath, "utf8"));
+    },
+    writeShortcut() {
+      writes += 1;
+    },
+  });
+
+  assert.deepEqual(repair(), { found: false, repaired: false });
+  writeFile(paths.canonicalStartupShortcut, JSON.stringify({ target: installedExe.toUpperCase() }));
+  assert.deepEqual(repair(), { found: true, repaired: false, skippedNonFile: false });
+  assert.equal(writes, 0);
 });
 
 test("refuses to mark completion when task deletion cannot be verified", (t) => {

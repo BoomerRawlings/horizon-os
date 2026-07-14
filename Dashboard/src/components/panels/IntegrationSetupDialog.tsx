@@ -313,6 +313,7 @@ function Instructions({ connectionId, googleLoginAvailable }: { connectionId: st
           <SetupStep number={3}>If Zotero blocks it, open <strong className="text-slate-200">Edit &gt; Settings &gt; Advanced</strong>, enable <strong className="text-slate-200">Allow other applications on this computer to communicate with Zotero</strong>, then retry.</SetupStep>
         </ol>
         <p className="mt-3 text-slate-500">This fills Research Desk while Zotero is running. A cloud key is optional and is needed only for cloud reads while Zotero is closed or explicitly approved Add to Zotero writes.</p>
+        <p className="mt-2 text-slate-500">For the optional key, name it <strong className="text-slate-300">Horizon</strong>. Under <strong className="text-slate-300">Personal Library</strong>, enable <strong className="text-slate-300">Allow library access</strong>. Enable <strong className="text-slate-300">Allow write access</strong> only if you want approved Add to Zotero actions.</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <OfficialLink href={officialSetupLinks.zoteroDownload}>Download Zotero</OfficialLink>
           <OfficialLink href={officialSetupLinks.zoteroNewKey}>Optional cloud key</OfficialLink>
@@ -917,7 +918,7 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
             <div className="mt-3">
               <Field
                 disabled={loading || saving || testing}
-                helper={secretHint || "Optional: paste one dedicated key for cloud reads while Zotero is closed and approved Add to Zotero writes. Horizon detects the User ID for you."}
+                helper={secretHint || "Optional: paste a dedicated Horizon key with Personal Library access. Write access is needed only for approved Add to Zotero actions. Horizon detects the User ID for you."}
                 label="Optional Zotero cloud key"
                 onChange={(zoteroApiKey) => setDraft({ zoteroApiKey })}
                 placeholder={secretPlaceholder || undefined}

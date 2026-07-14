@@ -37,6 +37,12 @@ import {
   X,
 } from "lucide-react";
 import { Panel } from "../ui/Panel";
+import {
+  isFreeResearchPaperPosition,
+  planExpandedResearchStacks,
+  researchDeskCameraBounds,
+  screenBoundsToResearchWorld,
+} from "./researchDeskLayout";
 
 type ReadingStatus = "to_read" | "skimming" | "read" | "annotated";
 type SortMode = "author" | "date" | "subject" | "reading" | "recent";
@@ -183,6 +189,7 @@ type ResearchConnectionViewport = {
 const RESEARCH_DESK_LAYOUT_KEY = "horizon.research-desk-layout.v2";
 const RESEARCH_DESK_SORT_KEY = "horizon.research-desk-sort.v1";
 const RESEARCH_PAPER_CONNECTIONS_KEY = "horizon.research-paper-connections.v1";
+const RESEARCH_SCROLLABLE_SURFACES = ".research-reading-sheet, .research-subject-manager, .research-duplicate-review, .research-desk-context-menu, .research-sticky-delete-confirm";
 const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
   to_read: "To read",
   skimming: "Skimming",
@@ -200,6 +207,17 @@ function readableInsights(value: string) {
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function PaperInlineDetails({ paper }: { paper: ResearchPaper }) {
+  const detail = readableInsights(paper.abstract || paper.summary || paper.citation)
+    || "No summary or abstract is available for this paper.";
+  return (
+    <span className="research-paper-close-details">
+      <span className="research-paper-detail-label">{paper.abstractLabel || "Paper details"}</span>
+      <span className="research-paper-detail-copy">{detail}</span>
+    </span>
+  );
 }
 
 function ideaDeskKey(path: string) {
@@ -484,6 +502,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     height: typeof window === "undefined" ? 0 : window.innerHeight,
     width: typeof window === "undefined" ? 0 : window.innerWidth,
   });
+  const requestDeskClampRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     ideasRef.current = ideas;
@@ -562,10 +581,20 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   // Paper filters are a finding tool. Sticky notes are desk objects and stay visible while
   // a person searches for one or more papers to connect to the same thought.
   const visibleIdeas = ideas;
-
   const deskStacks = useMemo(
     () => buildPaperStacks(visiblePapers, sortMode),
     [sortMode, visiblePapers],
+  );
+  const deskStackGroups = useMemo(
+    () => deskStacks.map((stack) => ({
+      key: stackDeskKey(sortMode, stack.key),
+      paperIds: stack.papers.map((paper) => paper.id),
+    })),
+    [deskStacks, sortMode],
+  );
+  const deskStackPlan = useMemo(
+    () => planExpandedResearchStacks(deskStackGroups, expandedStackKeys),
+    [deskStackGroups, expandedStackKeys],
   );
 
   const selectedPaper = selection?.kind === "paper" ? papers.find((paper) => paper.id === selection.path) || null : null;
@@ -612,6 +641,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     }
     let frame = 0;
     let resizeFrame = 0;
+    let resizeSettleTimer = 0;
+    let viewportResizePending = false;
     const updateLines = () => {
       const deskRect = desk.getBoundingClientRect();
       const ideaElements = new Map(
@@ -687,29 +718,72 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(updateLines);
     };
-    const handleDeskResize = () => scheduleUpdate();
-    const handleWindowResize = () => {
-      const nextViewport = { height: window.innerHeight, width: window.innerWidth };
-      const previousViewport = viewportSizeRef.current;
-      if (nextViewport.height === previousViewport.height && nextViewport.width === previousViewport.width) {
-        scheduleUpdate();
-        return;
-      }
-      viewportSizeRef.current = nextViewport;
+    const clampLayoutAfterResize = () => {
       if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
       resizeFrame = window.requestAnimationFrame(() => {
         const deskRect = desk.getBoundingClientRect();
+        if (deskRect.width <= 0 || deskRect.height <= 0) {
+          scheduleUpdate();
+          return;
+        }
         const sheetRect = readingSheetRef.current?.getBoundingClientRect();
-        const usableLeft = deskRect.left + 16;
-        const usableRight = sheetRect && sheetRect.width > 0 && sheetRect.left > deskRect.left + 180
-          ? Math.min(deskRect.right - 16, sheetRect.left - 16)
-          : deskRect.right - 16;
-        const usableTop = deskRect.top + 52;
-        const usableBottom = deskRect.bottom - 52;
+        const usableScreenLeft = 16;
+        const usableScreenRight = sheetRect && sheetRect.width > 0 && sheetRect.left > deskRect.left + 180
+          ? Math.min(deskRect.width - 16, sheetRect.left - deskRect.left - 16)
+          : deskRect.width - 16;
+        const usableScreenTop = 52;
+        const usableScreenBottom = deskRect.height - 52;
+        const usableWorld = screenBoundsToResearchWorld({
+          bottom: usableScreenBottom,
+          left: usableScreenLeft,
+          right: usableScreenRight,
+          top: usableScreenTop,
+        }, camera);
         const stackElements = new Map(
           [...desk.querySelectorAll<HTMLElement>("[data-research-stack-key]")]
             .map((element) => [element.dataset.researchStackKey || "", element] as const),
         );
+        const freePaperElements = new Map(
+          [...desk.querySelectorAll<HTMLElement>(".research-paper-stack-expanded .research-paper-free-positioned[data-research-paper-id]")]
+            .map((element) => [element.dataset.researchPaperId || "", element] as const),
+        );
+        const ideaElements = new Map(
+          [...desk.querySelectorAll<HTMLElement>("[data-research-idea-path]")]
+            .map((element) => [element.dataset.researchIdeaPath || "", element] as const),
+        );
+        const worldRect = (element: HTMLElement) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            height: rect.height / camera.scale,
+            left: (rect.left - deskRect.left - camera.x) / camera.scale,
+            top: (rect.top - deskRect.top - camera.y) / camera.scale,
+            width: rect.width / camera.scale,
+          };
+        };
+        const correctionFor = (
+          rect: ReturnType<typeof worldRect>,
+          offset: Pick<DeskPosition, "x" | "y"> = { x: 0, y: 0 },
+        ) => {
+          const left = rect.left + offset.x;
+          const top = rect.top + offset.y;
+          const right = left + rect.width;
+          const bottom = top + rect.height;
+          const correctionX = rect.width > usableWorld.right - usableWorld.left
+            ? usableWorld.left - left
+            : left < usableWorld.left
+              ? usableWorld.left - left
+              : right > usableWorld.right
+                ? usableWorld.right - right
+                : 0;
+          const correctionY = rect.height > usableWorld.bottom - usableWorld.top
+            ? usableWorld.top - top
+            : top < usableWorld.top
+              ? usableWorld.top - top
+              : bottom > usableWorld.bottom
+                ? usableWorld.bottom - bottom
+                : 0;
+          return { x: correctionX, y: correctionY };
+        };
         setLayout((current) => {
           let changed = false;
           const next = { ...current };
@@ -718,40 +792,91 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
             const position = current[key];
             const heading = stackElements.get(stack.key)?.querySelector<HTMLElement>(".research-paper-stack-heading");
             if (!position || !heading) continue;
-            const headingRect = heading.getBoundingClientRect();
-            const worldLeft = deskRect.left + (headingRect.left - deskRect.left - camera.x) / camera.scale;
-            const worldTop = deskRect.top + (headingRect.top - deskRect.top - camera.y) / camera.scale;
-            const worldWidth = headingRect.width / camera.scale;
-            const worldHeight = headingRect.height / camera.scale;
-            const worldRight = worldLeft + worldWidth;
-            const worldBottom = worldTop + worldHeight;
-            const correctionX = worldWidth > usableRight - usableLeft
-              ? usableLeft - worldLeft
-              : worldLeft < usableLeft
-                ? usableLeft - worldLeft
-                : worldRight > usableRight
-                  ? usableRight - worldRight
-                  : 0;
-            const correctionY = worldHeight > usableBottom - usableTop
-              ? usableTop - worldTop
-              : worldTop < usableTop
-                ? usableTop - worldTop
-                : worldBottom > usableBottom
-                  ? usableBottom - worldBottom
-                  : 0;
-            if (!correctionX && !correctionY) continue;
+            const correction = correctionFor(worldRect(heading));
+            if (!correction.x && !correction.y) continue;
             next[key] = {
               ...position,
-              x: position.x + correctionX,
-              y: position.y + correctionY,
+              x: position.x + correction.x,
+              y: position.y + correction.y,
             };
             changed = true;
           }
+
+          const paperXLimit = deskRect.width * 0.72;
+          const paperYLimit = deskRect.height * 0.72;
+          for (const [key, position] of Object.entries(current)) {
+            if (!key.startsWith("paper:") || !isFreeResearchPaperPosition(position)) continue;
+            const boundedX = clamp(position.x, -paperXLimit, paperXLimit);
+            const boundedY = clamp(position.y, -paperYLimit, paperYLimit);
+            if (boundedX === position.x && boundedY === position.y) continue;
+            next[key] = { ...position, x: boundedX, y: boundedY };
+            changed = true;
+          }
+
+          for (const [paperId, element] of freePaperElements) {
+            const key = paperDeskKey(paperId);
+            const paperIndex = Number(element.style.getPropertyValue("--paper-index")) || 0;
+            const original = current[key] || { x: 0, y: 0, rotation: 0, z: 1000 + paperIndex };
+            const position = next[key] || original;
+            const correction = correctionFor(worldRect(element), {
+              x: position.x - original.x,
+              y: position.y - original.y,
+            });
+            if (!correction.x && !correction.y) continue;
+            next[key] = {
+              ...position,
+              x: position.x + correction.x,
+              y: position.y + correction.y,
+            };
+            changed = true;
+          }
+
+          for (const [ideaPath, element] of ideaElements) {
+            const key = ideaDeskKey(ideaPath);
+            const original = current[key];
+            if (!original) continue;
+            const position = {
+              ...original,
+              x: clamp(original.x, 0.05, 0.94),
+              y: clamp(original.y, 0.09, 0.91),
+            };
+            const correction = correctionFor(worldRect(element), {
+              x: (position.x - original.x) * deskRect.width,
+              y: (position.y - original.y) * deskRect.height,
+            });
+            const nextX = position.x + correction.x / deskRect.width;
+            const nextY = position.y + correction.y / deskRect.height;
+            if (nextX === original.x && nextY === original.y) continue;
+            next[key] = { ...position, x: nextX, y: nextY };
+            changed = true;
+          }
+
           if (changed) persistLayout(next);
           return changed ? next : current;
         });
+        viewportResizePending = false;
         scheduleUpdate();
       });
+    };
+    requestDeskClampRef.current = clampLayoutAfterResize;
+    const scheduleResizeClamp = () => {
+      if (resizeSettleTimer) window.clearTimeout(resizeSettleTimer);
+      resizeSettleTimer = window.setTimeout(clampLayoutAfterResize, 180);
+    };
+    const handleDeskResize = () => {
+      scheduleUpdate();
+      if (viewportResizePending) scheduleResizeClamp();
+    };
+    const handleWindowResize = () => {
+      const nextViewport = { height: window.innerHeight, width: window.innerWidth };
+      const previousViewport = viewportSizeRef.current;
+      if (nextViewport.height === previousViewport.height && nextViewport.width === previousViewport.width) {
+        scheduleUpdate();
+        return;
+      }
+      viewportSizeRef.current = nextViewport;
+      viewportResizePending = true;
+      scheduleResizeClamp();
     };
     handleDeskResize();
     const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleDeskResize) : null;
@@ -760,6 +885,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
+      if (resizeSettleTimer) window.clearTimeout(resizeSettleTimer);
+      if (requestDeskClampRef.current === clampLayoutAfterResize) requestDeskClampRef.current = null;
       observer?.disconnect();
       window.removeEventListener("resize", handleWindowResize);
     };
@@ -777,13 +904,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       const vertical = (pressed.has("s") ? 1 : 0) - (pressed.has("w") ? 1 : 0);
       if (horizontal || vertical) {
         setCamera((current) => {
-          const rect = deskRef.current?.getBoundingClientRect();
-          const xLimit = rect ? Math.max(420, rect.width * Math.max(0.65, current.scale - 0.35)) : 420;
-          const yLimit = rect ? Math.max(320, rect.height * Math.max(0.65, current.scale - 0.35)) : 320;
+          const bounds = cameraBoundsForScale(current.scale);
           return {
             ...current,
-            x: clamp(current.x - horizontal * 6, -xLimit, xLimit),
-            y: clamp(current.y - vertical * 6, -yLimit, yLimit),
+            x: clamp(current.x - horizontal * 6, bounds.minX, bounds.maxX),
+            y: clamp(current.y - vertical * 6, bounds.minY, bounds.maxY),
           };
         });
       }
@@ -861,6 +986,18 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     return () => window.removeEventListener("pointerdown", closeContextMenu);
   }, []);
 
+  useEffect(() => {
+    const desk = deskRef.current;
+    if (!desk) return undefined;
+    const preventDeskWheelScroll = (event: WheelEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!event.deltaY || target?.closest(RESEARCH_SCROLLABLE_SURFACES)) return;
+      event.preventDefault();
+    };
+    desk.addEventListener("wheel", preventDeskWheelScroll, { passive: false });
+    return () => desk.removeEventListener("wheel", preventDeskWheelScroll);
+  }, []);
+
   function persistLayout(next: DeskLayout) {
     try { localStorage.setItem(RESEARCH_DESK_LAYOUT_KEY, JSON.stringify(next)); } catch { /* local storage is optional */ }
   }
@@ -933,7 +1070,10 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   function toggleStackExpansion(stack: PaperStack) {
     const key = stackExpansionKey(stack);
     const opening = !expandedStackKeys.includes(key);
-    setExpandedStackKeys((current) => opening ? [...current, key] : current.filter((item) => item !== key));
+    const nextExpandedKeys = opening
+      ? [...expandedStackKeys, key]
+      : expandedStackKeys.filter((item) => item !== key);
+    setExpandedStackKeys(nextExpandedKeys);
     setArrangementRevision((current) => current + 1);
     setSubjectManagerOpen(false);
     setDuplicateReviewOpen(false);
@@ -941,8 +1081,18 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const paper = currentPaper || stack.papers[stackCursor(stack)];
     if (paper) setSelection({ kind: "paper", path: paper.id });
     setMessage(opening
-      ? `${stack.label} spread into ${stack.papers.length} visible ${stack.papers.length === 1 ? "paper" : "papers"}. Other piles stay where they are.`
+      ? `${stack.label} spread into ${stack.papers.length} ordered ${stack.papers.length === 1 ? "paper" : "papers"}. The generated grid reflowed; freely placed papers kept their saved spots.`
       : `${stack.label} restacked.`);
+  }
+
+  function spreadAllPiles() {
+    const nextExpandedKeys = deskStackPlan.map((group) => group.key);
+    if (!nextExpandedKeys.length) return;
+    setExpandedStackKeys(nextExpandedKeys);
+    setArrangementRevision((current) => current + 1);
+    setSubjectManagerOpen(false);
+    setDuplicateReviewOpen(false);
+    setMessage(`${nextExpandedKeys.length} ${nextExpandedKeys.length === 1 ? "pile" : "piles"} spread into an ordered grid. Saved free placements were preserved.`);
   }
 
   function fitDesk() {
@@ -952,9 +1102,40 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const contentHeight = Math.max(260, (grid?.scrollHeight || 0) + 74);
     const contentWidth = Math.max(grid?.clientWidth || 0, grid?.scrollWidth || 0);
     const widthScale = grid?.clientWidth && contentWidth ? grid.clientWidth / contentWidth : 1;
-    const scale = clamp(Math.min(1, (rect.height - 42) / contentHeight, widthScale), 0.45, 1);
+    const scale = clamp(Math.min(1, (rect.height - 42) / contentHeight, widthScale), 0.12, 1);
     setCamera({ scale, x: 0, y: 0 });
     setMessage(`Desk fitted to ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}.`);
+  }
+
+  function cameraBoundsForScale(scale: number) {
+    const desk = deskRef.current;
+    const rect = desk?.getBoundingClientRect();
+    const grid = desk?.querySelector<HTMLElement>(".research-stack-grid");
+    const world = desk?.querySelector<HTMLElement>(".research-desk-world");
+    const viewportWidth = Math.max(1, rect?.width || 1);
+    const viewportHeight = Math.max(1, rect?.height || 1);
+    let contentLeft = 0;
+    let contentTop = 0;
+    if (world && world.offsetWidth > 0) {
+      const worldRect = world.getBoundingClientRect();
+      const renderedWorldScale = worldRect.width / world.offsetWidth;
+      if (renderedWorldScale > 0) {
+        for (const element of world.querySelectorAll<HTMLElement>("[data-research-stack-key], [data-research-paper-id], [data-research-idea-path]")) {
+          const elementRect = element.getBoundingClientRect();
+          contentLeft = Math.min(contentLeft, (elementRect.left - worldRect.left) / renderedWorldScale);
+          contentTop = Math.min(contentTop, (elementRect.top - worldRect.top) / renderedWorldScale);
+        }
+      }
+    }
+    return researchDeskCameraBounds({
+      contentHeight: Math.max(260, (grid?.scrollHeight || 0) + 74),
+      contentLeft,
+      contentTop,
+      contentWidth: Math.max(grid?.clientWidth || 0, grid?.scrollWidth || 0, viewportWidth),
+      scale,
+      viewportHeight,
+      viewportWidth,
+    });
   }
 
   function showAllPapers(nextMessage = "Showing all papers.") {
@@ -989,13 +1170,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const drag = cameraDragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const rect = deskRef.current?.getBoundingClientRect();
-    const xLimit = rect ? Math.max(420, rect.width * Math.max(0.65, drag.origin.scale - 0.35)) : 420;
-    const yLimit = rect ? Math.max(320, rect.height * Math.max(0.65, drag.origin.scale - 0.35)) : 320;
+    const bounds = cameraBoundsForScale(drag.origin.scale);
     setCamera({
       scale: drag.origin.scale,
-      x: clamp(drag.origin.x + event.clientX - drag.startX, -xLimit, xLimit),
-      y: clamp(drag.origin.y + event.clientY - drag.startY, -yLimit, yLimit),
+      x: clamp(drag.origin.x + event.clientX - drag.startX, bounds.minX, bounds.maxX),
+      y: clamp(drag.origin.y + event.clientY - drag.startY, bounds.minY, bounds.maxY),
     });
   }
 
@@ -1007,24 +1186,22 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
   function zoomDesk(event: ReactWheelEvent<HTMLDivElement>) {
     const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(".research-reading-sheet, .research-subject-manager, .research-duplicate-review, .research-desk-context-menu, .research-sticky-delete-confirm")) return;
+    if (target?.closest(RESEARCH_SCROLLABLE_SURFACES)) return;
     const rect = deskRef.current?.getBoundingClientRect();
     if (!rect || !event.deltaY) return;
-    event.preventDefault();
     event.currentTarget.focus({ preventScroll: true });
     const localX = event.clientX - rect.left;
     const localY = event.clientY - rect.top;
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
     setCamera((current) => {
-      const scale = clamp(current.scale * Math.exp(-delta * 0.0014), 0.45, 4);
+      const scale = clamp(current.scale * Math.exp(-delta * 0.0014), 0.12, 4);
       const worldX = (localX - current.x) / current.scale;
       const worldY = (localY - current.y) / current.scale;
-      const xLimit = Math.max(420, rect.width * Math.max(0.65, scale - 0.35));
-      const yLimit = Math.max(320, rect.height * Math.max(0.65, scale - 0.35));
+      const bounds = cameraBoundsForScale(scale);
       return {
         scale,
-        x: clamp(localX - worldX * scale, -xLimit, xLimit),
-        y: clamp(localY - worldY * scale, -yLimit, yLimit),
+        x: clamp(localX - worldX * scale, bounds.minX, bounds.maxX),
+        y: clamp(localY - worldY * scale, bounds.minY, bounds.maxY),
       };
     });
     setContextMenu(null);
@@ -1452,11 +1629,13 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const desk = deskRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !desk) return;
     if (drag.kind === "stack" || drag.kind === "paper") {
+      let connectedDrop = false;
       if (drag.moved) {
         if (drag.kind === "stack") suppressStackClickRef.current = drag.key;
         else suppressPaperClickRef.current = drag.key;
         const sourcePaper = drag.paperId ? papers.find((paper) => paper.id === drag.paperId) || null : null;
         const dropPaper = drag.kind === "paper" ? paperAtPoint(event.clientX, event.clientY, drag.paperId) : null;
+        connectedDrop = Boolean(sourcePaper && dropPaper);
         if (sourcePaper && dropPaper) togglePaperConnection(sourcePaper, dropPaper);
         else setMessage(drag.kind === "paper" ? "Paper position saved on this desk. Drag it onto another paper to connect them." : "Stack position saved. Use Stack desk to reset the arrangement.");
         window.setTimeout(() => {
@@ -1465,8 +1644,18 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         }, 0);
       }
       setLayout((current) => {
-        persistLayout(current);
-        return current;
+        const next = connectedDrop
+          ? {
+              ...current,
+              [drag.key]: {
+                ...(current[drag.key] || drag.origin),
+                x: drag.origin.x,
+                y: drag.origin.y,
+              },
+            }
+          : current;
+        persistLayout(next);
+        return next;
       });
       dragRef.current = null;
       setDraggingKey("");
@@ -1760,7 +1949,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         </div>
         <div className="research-desk-hint">
           <Compass className="h-3.5 w-3.5" />
-          <span>Double-click a pile to spread it · drag a paper anywhere · drop paper on paper to connect or disconnect · wheel to zoom ({Math.round(camera.scale * 100)}%).</span>
+          <span>Double-click a pile to spread it in the desk · drag papers independently · drop paper on paper to connect or disconnect · wheel to reveal detail ({Math.round(camera.scale * 100)}%).</span>
         </div>
 
         {loading ? <div className="research-desk-loading">Setting out the research desk...</div> : null}
@@ -1828,13 +2017,15 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 role="listitem"
                 style={{
                   "--stack-delay": `${Math.min(stackIndex * 24, 240)}ms`,
-                  "--stack-offset-x": `${stackPosition.x}px`,
-                  "--stack-offset-y": `${stackPosition.y}px`,
+                  "--stack-heading-offset-x": `${expanded ? stackPosition.x : 0}px`,
+                  "--stack-heading-offset-y": `${expanded ? stackPosition.y : 0}px`,
+                  "--stack-offset-x": `${expanded ? 0 : stackPosition.x}px`,
+                  "--stack-offset-y": `${expanded ? 0 : stackPosition.y}px`,
                   zIndex: stackPosition.z,
                 } as CSSProperties}
               >
                 <button
-                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. ${expanded ? "Press Enter or double-click to restack." : "Press Enter or double-click to spread every paper on the desk."} Drag to arrange, or use Shift plus arrow keys.`}
+                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. ${expanded ? "Press Enter or double-click to restack. Dragging this heading does not move the spread papers." : "Press Enter or double-click to spread every paper on the desk. Drag to arrange the pile."} Use Shift plus arrow keys to move the heading.`}
                   aria-expanded={expanded}
                   className="research-paper-stack-heading"
                   onClick={(event) => {
@@ -1867,7 +2058,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 >
                   <span>{stack.label}</span>
                   <strong>{stack.papers.length} {stack.papers.length === 1 ? "paper" : "papers"}</strong>
-                  <small>{stackKind} · drag to arrange · {expanded ? "double-click to restack" : "double-click to spread"} · {cursor + 1} of {stack.papers.length}</small>
+                  <small>{stackKind} · {expanded ? "heading moves independently · double-click to restack" : "drag to arrange · double-click to spread"} · {cursor + 1} of {stack.papers.length}</small>
                 </button>
 
                 <div
@@ -1900,7 +2091,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     return (
                     <article
                       aria-label={`${spreadPaper.title}, ${spreadPaper.authorLabel}, ${spreadPaper.year}. Paper ${paperIndex + 1} of ${stack.papers.length} in the open ${stack.label} pile.`}
-                      className={`research-paper-card research-spread-paper ${paperPosition.x || paperPosition.y ? "research-paper-free-positioned" : ""} ${draggingKey === paperLayoutKey ? "research-desk-item-dragging" : ""} ${spreadPaper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${spreadPaper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === spreadPaper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === spreadPaper.id ? "research-paper-sticky-target" : ""}`}
+                      className={`research-paper-card research-spread-paper ${isFreeResearchPaperPosition(paperPosition) ? "research-paper-free-positioned" : ""} ${draggingKey === paperLayoutKey ? "research-desk-item-dragging" : ""} ${spreadPaper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${spreadPaper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === spreadPaper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === spreadPaper.id ? "research-paper-sticky-target" : ""}`}
                       data-research-paper-id={spreadPaper.id}
                       key={spreadPaper.id}
                       onClick={() => {
@@ -1960,7 +2151,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                       <span className="research-paper-kicker" title={spreadPaper.authors.join("; ") || spreadPaper.authorLabel}>{spreadPaper.authorLabel} · {spreadPaper.year || "n.d."}</span>
                       <strong>{spreadPaper.title}</strong>
                       <span className="research-paper-title">{spreadPaper.summaryPreview || "No abstract or summary has been saved yet."}</span>
-                      <span className="research-paper-close-details">{readableInsights(spreadPaper.abstract || spreadPaper.summary || spreadPaper.citation) || "No longer summary is available for this paper."}</span>
+                      <PaperInlineDetails paper={spreadPaper} />
                       <span className="research-paper-close-metadata">
                         <span>{spreadPaper.datePublished || "Date unknown"}</span>
                         <span>{spreadPaper.doi && spreadPaper.doi !== "unknown" ? `DOI ${spreadPaper.doi}` : sourceLabel(spreadPaper.source)}</span>
@@ -2030,7 +2221,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     <span className="research-paper-kicker">{paper.authorLabel} · {paper.year || "n.d."}</span>
                     <strong>{paper.title}</strong>
                     <span className="research-paper-title">{paper.summaryPreview || "No abstract or summary has been saved yet."}</span>
-                    <span className="research-paper-close-details">{readableInsights(paper.abstract || paper.summary || paper.citation) || "No longer summary is available for this paper."}</span>
+                    <PaperInlineDetails paper={paper} />
                     <span className="research-paper-close-metadata">
                       <span>{paper.datePublished || "Date unknown"}</span>
                       <span>{paper.doi && paper.doi !== "unknown" ? `DOI ${paper.doi}` : sourceLabel(paper.source)}</span>
@@ -2520,6 +2711,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           {expandedStackKeys.length ? (
             <button className="is-active" onClick={restackOpenPiles} type="button">
               <Layers3 className="h-3.5 w-3.5" /> Restack open ({expandedStackKeys.length})
+            </button>
+          ) : null}
+          {deskStackPlan.some((group) => !group.expanded) ? (
+            <button onClick={spreadAllPiles} title="Spread every visible pile into one ordered desk grid" type="button">
+              <FileText className="h-3.5 w-3.5" /> Spread all
             </button>
           ) : null}
           <button onClick={() => showAllPapers()} title="Clear every filter and show the complete library" type="button">

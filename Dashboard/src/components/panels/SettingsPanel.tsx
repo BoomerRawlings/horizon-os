@@ -153,7 +153,7 @@ function Toggle({
 
 function SettingCard({ children, title }: { children: ReactNode; title: string }) {
   return (
-    <section className="rounded-2xl border border-white/8 bg-white/[0.025] p-4">
+    <section className="min-w-0 rounded-2xl border border-white/8 bg-white/[0.025] p-4">
       <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">{title}</h3>
       <div className="mt-4 grid gap-3">{children}</div>
     </section>
@@ -753,14 +753,14 @@ export function SettingsPanel({
               const targeted = targetIntegrationId === connection.id;
               return (
                 <article
-                  className={`rounded-xl border p-4 transition ${
+                  className={`min-w-0 rounded-xl border p-4 transition ${
                     targeted
                       ? "border-[rgba(var(--accent-rgb),0.46)] bg-[rgba(var(--accent-rgb),0.08)] shadow-[0_0_28px_rgba(var(--accent-rgb),0.12)]"
                       : "border-white/8 bg-white/[0.025]"
                   }`}
                   key={connection.id}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className="grid h-11 w-11 place-items-center rounded-xl border border-white/8 bg-white/[0.035]">
                       {iconSrc ? (
                         <BrandMark brand={dockItem?.brand} className="h-7 w-7" iconSrc={iconSrc} label={connection.label} />
@@ -778,7 +778,7 @@ export function SettingsPanel({
                       </p>
                     </div>
                     <button
-                      className="h-9 rounded-lg border border-[rgba(var(--accent-rgb),0.28)] bg-[rgba(var(--accent-rgb),0.1)] px-3 text-xs text-white transition hover:bg-[rgba(var(--accent-rgb),0.18)]"
+                      className="h-9 shrink-0 rounded-lg border border-[rgba(var(--accent-rgb),0.28)] bg-[rgba(var(--accent-rgb),0.1)] px-3 text-xs text-white transition hover:bg-[rgba(var(--accent-rgb),0.18)]"
                       onClick={() => handleIntegrationClick(connection)}
                       type="button"
                     >
@@ -1201,9 +1201,9 @@ export function SettingsPanel({
             </nav>
           </aside>
 
-          <main className="min-h-0 overflow-y-auto px-5 py-4">
+          <main className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-5 py-4">
             <div
-              className={`settings-section-content settings-section-content-${sectionDirection} settings-section-content-${contentPhase} mx-auto max-w-2xl`}
+              className={`settings-section-content settings-section-content-${sectionDirection} settings-section-content-${contentPhase} mx-auto w-full min-w-0 max-w-2xl`}
               key={displayedSection}
             >
               {renderSection(displayedSection)}

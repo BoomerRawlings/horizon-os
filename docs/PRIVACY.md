@@ -4,7 +4,7 @@
 
 Calendar items, captures, projects, research notes, and workflow logs stay in the selected Horizon workspace. That folder is Obsidian-compatible, but Obsidian is optional. The Horizon application is installed separately.
 
-Horizon's local server listens on `127.0.0.1`. State-changing requests are accepted only from Horizon's own local window, requests with a body must use JSON, and the interface cannot be embedded in another webpage. The app does not include analytics or telemetry.
+Horizon's local server listens on `127.0.0.1`. State-changing requests are accepted only from Horizon's own local window, and requests with a body must use JSON. External sites cannot embed Horizon; the app permits only its own same-origin Constellation workspace to use a frame. The app does not include analytics or telemetry.
 
 ## Optional OpenAI-assisted Capture parsing
 

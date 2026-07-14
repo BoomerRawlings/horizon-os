@@ -108,8 +108,12 @@ try {
     "test:vault",
     "test:crypto",
     "test:legacy-migration",
+    "test:server-self-check",
     "smoke",
     "test:heuristics",
+    "test:research-desk",
+    "test:updater",
+    "test:updater-parity",
     "test:installer-parity"
   )) {
     Invoke-External "npm run $scriptName" $npmPath @("run", $scriptName)
@@ -230,6 +234,28 @@ try {
   foreach ($legacyItem in @("dist-installer", "scripts\make-distribution.ps1")) {
     if (Test-Path -LiteralPath (Join-Path $packagedAppRoot $legacyItem)) {
       throw "Legacy ZIP installer content was packaged: $legacyItem"
+    }
+  }
+
+  Step "Running packaged Constellation smoke test"
+  $packagedServerPath = Join-Path $packagedAppRoot "server.cjs"
+  Assert-File $packagedServerPath "Packaged local server" | Out-Null
+  $previousSmokeServerPath = [Environment]::GetEnvironmentVariable("HORIZON_SMOKE_SERVER_PATH", "Process")
+  $previousSmokePackagePath = [Environment]::GetEnvironmentVariable("HORIZON_SMOKE_PACKAGE_PATH", "Process")
+  try {
+    $env:HORIZON_SMOKE_SERVER_PATH = $packagedServerPath
+    $env:HORIZON_SMOKE_PACKAGE_PATH = $packagedPackagePath
+    Invoke-External "Packaged Constellation smoke test" $npmPath @("run", "smoke")
+  } finally {
+    if ($null -eq $previousSmokeServerPath) {
+      Remove-Item Env:\HORIZON_SMOKE_SERVER_PATH -ErrorAction SilentlyContinue
+    } else {
+      $env:HORIZON_SMOKE_SERVER_PATH = $previousSmokeServerPath
+    }
+    if ($null -eq $previousSmokePackagePath) {
+      Remove-Item Env:\HORIZON_SMOKE_PACKAGE_PATH -ErrorAction SilentlyContinue
+    } else {
+      $env:HORIZON_SMOKE_PACKAGE_PATH = $previousSmokePackagePath
     }
   }
 

@@ -238,6 +238,20 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    const shell = homeShellRef.current;
+    if (!shell || (workspaceScreen !== "research" && workspaceScreen !== "development-sandbox")) return undefined;
+
+    const lockWorkspaceScroll = () => {
+      if (shell.scrollTop !== 0) shell.scrollTop = 0;
+      if (shell.scrollLeft !== 0) shell.scrollLeft = 0;
+    };
+
+    lockWorkspaceScroll();
+    shell.addEventListener("scroll", lockWorkspaceScroll, { passive: true });
+    return () => shell.removeEventListener("scroll", lockWorkspaceScroll);
+  }, [workspaceScreen]);
+
   function animateStageTo(getHeight: () => number) {
     clearStageAnimationFrame();
     stageAnimationFrameRef.current = window.requestAnimationFrame(() => {
@@ -939,7 +953,11 @@ export function App() {
             wheel/trackpad, but the visual rail is hidden and expanding collections own
             their scrolling inside the relevant panel. */}
         <section
-          className={`app-home-shell flex h-screen flex-col overflow-y-auto overflow-x-hidden px-10 py-6 ${
+          className={`app-home-shell flex h-screen flex-col overflow-x-hidden px-10 py-6 ${
+            workspaceScreen === "research" || workspaceScreen === "development-sandbox"
+              ? "overflow-y-clip"
+              : "overflow-y-auto"
+          } ${
             immersiveWorkspace ? "focus-mode-shell" : ""
           }`}
           ref={homeShellRef}

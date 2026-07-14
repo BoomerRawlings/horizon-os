@@ -23,7 +23,7 @@ The recommended connection is keyless.
 3. Choose **Connect Zotero Desktop**.
 4. If Horizon says access is off, open **Zotero > Edit > Settings > Advanced**, enable **Allow other applications on this computer to communicate with Zotero**, and retry.
 
-This connection is read-only and works while Zotero is open. To read the cloud library while Zotero is closed or use an approved **Add to Zotero** action, expand **Optional cloud and write access**, follow the direct [Create New Key](https://www.zotero.org/settings/keys/new) link, paste the key, and choose **Connect optional cloud key**. Horizon discovers the User ID automatically.
+This connection is read-only and works while Zotero is open. To read the cloud library while Zotero is closed or use an approved **Add to Zotero** action, expand **Optional cloud and write access**, follow the direct [Create New Key](https://www.zotero.org/settings/keys/new) link, and create a dedicated key named `Horizon`. Under **Personal Library**, enable **Allow library access**. Enable **Allow write access** only if you want approved **Add to Zotero** actions. Paste the key into Horizon and choose **Connect optional cloud key**; Horizon discovers the User ID automatically.
 
 ## Google Drive
 

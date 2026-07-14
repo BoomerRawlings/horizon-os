@@ -6179,7 +6179,9 @@ function mutationRequestIsAllowed(req, res) {
 function sendConstellation(res) {
   const headers = {
     "cache-control": "no-store, max-age=0",
+    "content-security-policy": "frame-ancestors 'self'",
     "content-type": "text/html; charset=utf-8",
+    "x-frame-options": "SAMEORIGIN",
     "x-robots-tag": "noindex, nofollow",
   };
 
@@ -7222,7 +7224,7 @@ function selfCheck() {
   assert.ok(issueList(parsed.fields, parsed.body).some((issue) => issue.key === "date"));
   assert.strictEqual(issueList(parsed.fields, `${parsed.body}\n- Open reminder: yes\n`).some((issue) => issue.key === "date"), false);
   const rebuilt = buildItemContent(parsed.fields, parsed.body);
-  assert.strictEqual(parseItemContent(rebuilt).fields.action_needed, "Confirm the exact Canvas due time.");
+  assert.strictEqual(parseItemContent(rebuilt).fields.action_needed, "Confirm the exact course due time.");
   const paperParts = researchPaperParts("---\ntype: research-paper\n---\n\nCitation.\n\n## Summary\n\nUseful context.\n\n## Connections\n\n- [[Topic]]\n");
   assert.strictEqual(paperParts.abstractLabel, "Summary");
   assert.strictEqual(paperParts.abstract, "Useful context.");

@@ -233,6 +233,59 @@ function removeExactShortcut(entry, fsImpl, removed, skippedNonFiles) {
   removed.push(entry.id);
 }
 
+function sameWindowsPath(left, right) {
+  if (!left || !right) return false;
+  return path.resolve(left).replace(/[\\/]+$/, "").toLowerCase()
+    === path.resolve(right).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+// NSIS can move Horizon from an older package-name directory during an upgrade.
+// A canonical Startup shortcut represents the user's existing launch-at-sign-in
+// preference, so keep it enabled and retarget only that exact shortcut when needed.
+function repairCanonicalStartupShortcut({
+  fsImpl = fs,
+  installedExe,
+  readShortcut,
+  shortcutPath,
+  writeShortcut,
+}) {
+  const shortcut = requiredPath(shortcutPath, "shortcutPath");
+  const kind = shortcutKind(shortcut, fsImpl);
+  if (kind === "missing") return { found: false, repaired: false };
+  if (kind === "non-file") return { found: true, repaired: false, skippedNonFile: true };
+  if (typeof readShortcut !== "function" || typeof writeShortcut !== "function") {
+    throw new Error("Horizon startup shortcut repair needs Windows shortcut readers and writers.");
+  }
+
+  const executable = requiredPath(installedExe, "installedExe");
+  let executableStat;
+  try {
+    executableStat = fsImpl.statSync(executable);
+  } catch (error) {
+    throw new Error(`Horizon could not repair launch at sign-in because its installed app was not found: ${error.message}`);
+  }
+  if (!executableStat.isFile()) {
+    throw new Error("Horizon could not repair launch at sign-in because its installed app path is not a file.");
+  }
+
+  let currentTarget = "";
+  try {
+    currentTarget = String(readShortcut(shortcut)?.target || "");
+  } catch {
+    // A malformed or stale shortcut is still evidence that launch-at-sign-in was
+    // enabled. Rewriting the same exact file safely preserves that preference.
+  }
+  if (sameWindowsPath(currentTarget, executable)) {
+    return { found: true, repaired: false, skippedNonFile: false };
+  }
+
+  const written = writeShortcut(shortcut, executable);
+  if (written === false) {
+    throw new Error("Windows did not update Horizon's launch-at-sign-in shortcut.");
+  }
+  return { found: true, repaired: true, skippedNonFile: false };
+}
+
 function writeMarkerAtomically(markerPath, marker, fsImpl, now) {
   fsImpl.mkdirSync(path.dirname(markerPath), { recursive: true });
   const temporaryPath = `${markerPath}.tmp-${process.pid}-${now.getTime()}`;
@@ -391,4 +444,5 @@ module.exports = {
   createScheduledTaskRunner,
   legacyWindowsPaths,
   migrateLegacyWindowsInstall,
+  repairCanonicalStartupShortcut,
 };

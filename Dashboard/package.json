@@ -1,6 +1,9 @@
 {
-  "name": "rawlings-os-dashboard",
+  "name": "horizon",
+  "productName": "Horizon",
   "version": "0.3.0",
+  "description": "A local-first desktop workspace for planning, research, capture, and focus.",
+  "author": "Boomer Rawlings",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,10 +19,12 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "smoke": "node tests/smoke.mjs",
     "test:heuristics": "node tests/heuristics.test.mjs",
+    "test:research-desk": "node tests/researchDeskLayout.test.mjs",
     "test:updater": "node tests/updaterFailure.test.mjs",
     "test:updater-parity": "node tests/updaterParity.test.mjs",
     "test:installer-parity": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/installerParity.test.ps1",
     "test:legacy-migration": "node tests/legacyWindowsMigration.test.cjs",
+    "test:server-self-check": "node server.cjs --check",
     "test:vault": "node tests/vaultConnection.test.cjs",
     "test:crypto": "node tests/integrationStoreCrypto.test.cjs",
     "privacy:scan": "node scripts/privacy-scan.mjs"

@@ -22,6 +22,10 @@ function Assert-File([string]$Path, [string]$Label) {
 $package = Get-Content -Raw -LiteralPath $packagePath | ConvertFrom-Json
 $version = [string]$package.version
 Assert-True ($version -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') "package.json must contain a semantic release version."
+Assert-Equal "horizon" $package.name "NSIS per-user install-directory name"
+Assert-Equal "Horizon" $package.productName "Package product name"
+Assert-Equal "Horizon" $package.build.productName "Windows product name"
+Assert-Equal "com.rawlings.horizon" $package.build.appId "Windows upgrade identity"
 
 $scriptNames = @($package.scripts.PSObject.Properties.Name)
 Assert-True ($scriptNames -notcontains "make:dist") "The retired ZIP make:dist command must not be published."
@@ -31,8 +35,12 @@ foreach ($releaseGate in @(
   "test:vault",
   "test:crypto",
   "test:legacy-migration",
+  "test:server-self-check",
   "smoke",
   "test:heuristics",
+  "test:research-desk",
+  "test:updater",
+  "test:updater-parity",
   "test:installer-parity"
 )) {
   Assert-True ($scriptNames -contains $releaseGate) "package.json is missing release gate '$releaseGate'."
@@ -80,9 +88,16 @@ foreach ($builderMarker in @(
   "test:vault",
   "test:crypto",
   "test:legacy-migration",
+  "test:server-self-check",
   "smoke",
   "test:heuristics",
+  "test:research-desk",
+  "test:updater",
+  "test:updater-parity",
   "test:installer-parity",
+  "Running packaged Constellation smoke test",
+  "HORIZON_SMOKE_SERVER_PATH",
+  "HORIZON_SMOKE_PACKAGE_PATH",
   "Assert-CleanWorkingTree",
   "status --porcelain --untracked-files=all",
   "Source build-info.json reports uncommitted source changes.",
@@ -107,6 +122,10 @@ $secondCleanCallIndex = $builderText.IndexOf('Assert-CleanWorkingTree $gitPath',
 $cleanBuildIndex = $builderText.IndexOf('Step "Cleaning prior build output"', [System.StringComparison]::Ordinal)
 Assert-True ($cleanStepIndex -ge 0 -and $firstCleanCallIndex -gt $cleanStepIndex -and $firstCleanCallIndex -lt $releaseGatesIndex) "The clean-worktree gate must run before release tests."
 Assert-True ($secondCleanCallIndex -gt $releaseGatesIndex -and $secondCleanCallIndex -lt $cleanBuildIndex) "The clean-worktree gate must run again after tests and before building."
+
+$packagedValidationIndex = $builderText.IndexOf('Step "Validating the installer and packaged app"', [System.StringComparison]::Ordinal)
+$packagedSmokeIndex = $builderText.IndexOf('Step "Running packaged Constellation smoke test"', [System.StringComparison]::Ordinal)
+Assert-True ($packagedValidationIndex -ge 0 -and $packagedSmokeIndex -gt $packagedValidationIndex) "The packaged Constellation smoke test must run against the completed unpacked app."
 
 foreach ($requiredSourceItem in @(
   "server\integrationStoreCrypto.cjs",

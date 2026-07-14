@@ -15,7 +15,10 @@ const { decryptIntegrationStore, isEncryptedIntegrationStore } = integrationStor
 const PORT = 3899;
 const BASE = `http://127.0.0.1:${PORT}`;
 const here = path.dirname(fileURLToPath(import.meta.url));
-const expectedVersion = JSON.parse(readFileSync(path.join(here, "..", "package.json"), "utf8")).version;
+const smokeServerPath = path.resolve(process.env.HORIZON_SMOKE_SERVER_PATH || path.join(here, "..", "server.cjs"));
+const smokePackagePath = path.resolve(process.env.HORIZON_SMOKE_PACKAGE_PATH || path.join(here, "..", "package.json"));
+const smokeTargetLabel = process.env.HORIZON_SMOKE_SERVER_PATH ? "packaged app" : "source app";
+const expectedVersion = JSON.parse(readFileSync(smokePackagePath, "utf8")).version;
 const expectedVersionParts = expectedVersion.split(".").map((part) => Number(part));
 const releaseFixtureVersion = `${expectedVersionParts[0]}.${expectedVersionParts[1]}.${expectedVersionParts[2] + 1}`;
 const scratchAppData = mkdtempSync(path.join(tmpdir(), "horizon-smoke-"));
@@ -59,7 +62,7 @@ writeIntegrationFixture({
     settings: { zoteroApiKey: "legacy-zotero-key", zoteroUserId: "123", zoteroUsername: "legacy-user" },
   },
 });
-const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
+const server = spawn(process.execPath, [smokeServerPath], {
   // Capture requests remain offline unless they explicitly opt in. The fixture removes
   // its fake AI key before Capture tests, so the explicit-opt-in branch can be verified
   // without making a network request.
@@ -151,6 +154,11 @@ if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.string
 if (health.version !== expectedVersion) fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
 if (health.credentialEncryption !== "os_protected") fail(`/api/health did not require protected integration settings: ${JSON.stringify(health)}`);
+const healthHeaders = await fetch(`${BASE}/api/health`);
+if (
+  healthHeaders.headers.get("x-frame-options") !== "DENY"
+  || healthHeaders.headers.get("content-security-policy") !== "frame-ancestors 'none'"
+) fail("non-Constellation routes must remain frame-denied");
 ok(`/api/health identifies Horizon ${expectedVersion} and its ready active vault`);
 
 const reboundStatus = await new Promise((resolve, reject) => {
@@ -234,15 +242,129 @@ ok("/api/update/restart targets the exact installed executable through a detache
 
 const constellationResponse = await fetch(`${BASE}/api/constellation`);
 const constellationHtml = await constellationResponse.text();
-if (!constellationResponse.ok || constellationResponse.headers.get("x-horizon-constellation-source") !== "bundled") {
+if (
+  !constellationResponse.ok
+  || constellationResponse.headers.get("x-horizon-constellation-source") !== "bundled"
+  || !String(constellationResponse.headers.get("content-type") || "").startsWith("text/html")
+) {
   fail("/api/constellation did not serve the bundled workspace");
+}
+if (
+  constellationResponse.headers.get("x-frame-options") !== "SAMEORIGIN"
+  || constellationResponse.headers.get("content-security-policy") !== "frame-ancestors 'self'"
+) {
+  fail("/api/constellation cannot be embedded safely by Horizon's same-origin workspace");
 }
 if (!constellationHtml.includes("Projects · Notes · Relationships")) {
   fail("/api/constellation did not return the Constellation workspace");
 }
+
+const expectedConstellationLayoutMarkers = [
+  "const SYSTEM_RINGS = [720, 1260, 1810];",
+  "const RING_CAPACITY = [4, 7, 10];",
+  "const OUTER_RING_CAPACITY_STEP = 3;",
+  "const OUTER_RING_SPACING = 550;",
+];
+if (!expectedConstellationLayoutMarkers.every((marker) => constellationHtml.includes(marker))) {
+  fail("Constellation is missing its scalable project-ring layout constants");
+}
+const layoutSourceStart = constellationHtml.indexOf("function projectRingCapacity");
+const layoutSourceEnd = constellationHtml.indexOf("function buildGraph", layoutSourceStart);
+if (layoutSourceStart < 0 || layoutSourceEnd <= layoutSourceStart) {
+  fail("Constellation project-ring layout functions could not be verified");
+}
+let orbitalProjectPosition;
+try {
+  const layoutSource = constellationHtml.slice(layoutSourceStart, layoutSourceEnd);
+  orbitalProjectPosition = new Function(
+    "SCENE",
+    "SYSTEM_RINGS",
+    "RING_CAPACITY",
+    "OUTER_RING_CAPACITY_STEP",
+    "OUTER_RING_SPACING",
+    `${layoutSource}\nreturn orbitalProjectPosition;`,
+  )(
+    { width: 6400, height: 4200, centerX: 3200, centerY: 2100 },
+    [720, 1260, 1810],
+    [4, 7, 10],
+    3,
+    550,
+  );
+} catch (error) {
+  fail(`Constellation project-ring layout could not be evaluated: ${error.message}`);
+}
+
+function legacyProjectPosition(index) {
+  const rings = [720, 1260, 1810];
+  const capacities = [4, 7, 10];
+  let ringIndex = 0;
+  let slot = index;
+  while (ringIndex < capacities.length - 1 && slot >= capacities[ringIndex]) {
+    slot -= capacities[ringIndex];
+    ringIndex += 1;
+  }
+  const angle = -Math.PI / 2 + (slot / capacities[ringIndex]) * Math.PI * 2 + ringIndex * 0.16;
+  return {
+    x: 3200 + Math.cos(angle) * rings[ringIndex],
+    y: 2100 + Math.sin(angle) * rings[ringIndex],
+  };
+}
+
+const scalableProjectPositions = Array.from({ length: 160 }, (_, index) => orbitalProjectPosition(index));
+for (let index = 0; index < 21; index += 1) {
+  const previous = legacyProjectPosition(index);
+  const current = scalableProjectPositions[index];
+  if (Math.abs(previous.x - current.x) > 0.000001 || Math.abs(previous.y - current.y) > 0.000001) {
+    fail(`Constellation changed the established small-library position at project ${index + 1}`);
+  }
+}
+const uniqueProjectPositions = new Set(scalableProjectPositions.map((position) =>
+  `${position.x.toFixed(6)}:${position.y.toFixed(6)}`));
+if (uniqueProjectPositions.size !== scalableProjectPositions.length || scalableProjectPositions[21].ringIndex !== 3) {
+  fail("Constellation reused a project position after filling its original three rings");
+}
+for (let left = 0; left < scalableProjectPositions.length; left += 1) {
+  for (let right = left + 1; right < scalableProjectPositions.length; right += 1) {
+    const distance = Math.hypot(
+      scalableProjectPositions[left].x - scalableProjectPositions[right].x,
+      scalableProjectPositions[left].y - scalableProjectPositions[right].y,
+    );
+    if (distance < 500) {
+      fail(`Constellation placed projects ${left + 1} and ${right + 1} only ${distance.toFixed(1)}px apart`);
+    }
+  }
+}
+ok("Constellation preserves its first 21 project positions and keeps 160 generated project positions unique and separated");
+
 const constellationAlias = await fetch(`${BASE}/api/development-sandbox`);
-if (!constellationAlias.ok) fail("legacy Constellation route did not remain compatible");
-ok("/api/constellation serves the bundled workspace and preserves the legacy route");
+const constellationAliasHtml = await constellationAlias.text();
+if (
+  !constellationAlias.ok
+  || constellationAlias.headers.get("x-horizon-constellation-source") !== "bundled"
+  || constellationAlias.headers.get("x-frame-options") !== "SAMEORIGIN"
+  || constellationAlias.headers.get("content-security-policy") !== "frame-ancestors 'self'"
+  || !constellationAliasHtml.includes("Projects · Notes · Relationships")
+) fail("legacy Constellation route did not remain compatible or safely embeddable");
+
+for (const deniedPath of ["/", "/constellation.html", "/api/projects?all=1"]) {
+  const deniedResponse = await fetch(`${BASE}${deniedPath}`);
+  if (
+    deniedResponse.headers.get("x-frame-options") !== "DENY"
+    || deniedResponse.headers.get("content-security-policy") !== "frame-ancestors 'none'"
+  ) fail(`${deniedPath} unexpectedly became frame-embeddable`);
+  await deniedResponse.body?.cancel();
+}
+
+const shellResponse = await fetch(`${BASE}/`);
+const shellHtml = await shellResponse.text();
+const rendererPath = shellHtml.match(/<script\b[^>]*\bsrc=["']([^"']+\.js)["']/i)?.[1];
+if (!shellResponse.ok || !rendererPath) fail("Horizon shell did not reference a renderer bundle");
+const rendererResponse = await fetch(new URL(rendererPath, BASE));
+const rendererSource = await rendererResponse.text();
+if (!rendererResponse.ok || !rendererSource.includes("/api/constellation")) {
+  fail("Horizon renderer did not embed the supported /api/constellation route");
+}
+ok(`${smokeTargetLabel} serves a non-empty, same-origin Constellation while all other sampled routes stay frame-denied`);
 
 const items = await (await fetch(`${BASE}/api/items`)).json();
 const list = Array.isArray(items) ? items : items.items;

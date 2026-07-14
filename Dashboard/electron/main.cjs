@@ -26,6 +26,7 @@ const {
   createScheduledTaskRunner,
   legacyWindowsPaths,
   migrateLegacyWindowsInstall,
+  repairCanonicalStartupShortcut,
 } = require("./legacyWindowsMigration.cjs");
 
 const APP_ID = "com.rawlings.horizon";
@@ -87,21 +88,36 @@ function runLegacyWindowsMigration() {
     installedExe: process.execPath,
     paths: migrationPaths,
     taskRunner: createScheduledTaskRunner(),
-    writeShortcut(shortcutPath, executable) {
-      fs.mkdirSync(path.dirname(shortcutPath), { recursive: true });
-      const written = shell.writeShortcutLink(shortcutPath, {
-        appUserModelId: APP_ID,
-        args: "",
-        cwd: path.dirname(executable),
-        description: "Launches Horizon at Windows sign-in.",
-        icon: executable,
-        iconIndex: 0,
-        target: executable,
-      });
-      if (!written) {
-        throw new Error("Windows did not create Horizon's replacement launch-at-sign-in shortcut.");
-      }
+    writeShortcut: writeCanonicalStartupShortcut,
+  });
+}
+
+function writeCanonicalStartupShortcut(shortcutPath, executable) {
+  fs.mkdirSync(path.dirname(shortcutPath), { recursive: true });
+  return shell.writeShortcutLink(shortcutPath, {
+    appUserModelId: APP_ID,
+    args: "",
+    cwd: path.dirname(executable),
+    description: "Launches Horizon at Windows sign-in.",
+    icon: executable,
+    iconIndex: 0,
+    target: executable,
+  });
+}
+
+function repairPackagedStartupShortcut() {
+  const paths = legacyWindowsPaths({
+    desktopDir: app.getPath("desktop"),
+    roamingAppDataDir: app.getPath("appData"),
+    userDataDir: app.getPath("userData"),
+  });
+  return repairCanonicalStartupShortcut({
+    installedExe: process.execPath,
+    readShortcut(shortcutPath) {
+      return shell.readShortcutLink(shortcutPath);
     },
+    shortcutPath: paths.canonicalStartupShortcut,
+    writeShortcut: writeCanonicalStartupShortcut,
   });
 }
 
@@ -592,6 +608,8 @@ app.whenReady().then(async () => {
     if (app.isPackaged && process.platform === "win32") {
       const migrationAttempt = attemptLegacyWindowsMigration(runLegacyWindowsMigration);
       legacyCleanupNeedsRetry = migrationAttempt.retryOnNextLaunch;
+      const shortcutRepairAttempt = attemptLegacyWindowsMigration(repairPackagedStartupShortcut);
+      legacyCleanupNeedsRetry = legacyCleanupNeedsRetry || shortcutRepairAttempt.retryOnNextLaunch;
     }
     appSourceRoot = sourceRoot();
     integrationStoreMasterKey = await loadOrCreateIntegrationMasterKey();
