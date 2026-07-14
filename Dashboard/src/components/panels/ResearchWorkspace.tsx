@@ -4,22 +4,14 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import {
   AlertCircle,
   ArrowLeft,
   BookOpen,
   Bookmark,
-  ChevronLeft,
-  ChevronRight,
-  Compass,
   Copy,
   ExternalLink,
-  FileText,
   Layers3,
   Lightbulb,
   Link2,
@@ -28,26 +20,23 @@ import {
   PenLine,
   Plus,
   RefreshCw,
-  RotateCcw,
   Search,
   Sparkles,
-  StickyNote,
   Tags,
   Trash2,
   X,
 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import {
-  isFreeResearchPaperPosition,
-  planExpandedResearchStacks,
-  researchDeskCameraBounds,
-  screenBoundsToResearchWorld,
-} from "./researchDeskLayout";
+  ResearchDeskCanvas,
+  type ResearchDeskCanvasSelection,
+  type ResearchDeskCanvasStickyDraft,
+} from "./ResearchDeskCanvas";
 
 type ReadingStatus = "to_read" | "skimming" | "read" | "annotated";
 type SortMode = "author" | "date" | "subject" | "reading" | "recent";
 
-type ResearchPaper = {
+export type ResearchPaper = {
   abstract: string;
   abstractLabel: "Abstract" | "Summary";
   apaCitation: string;
@@ -79,7 +68,7 @@ type ResearchPaper = {
   zoteroUrl: string;
 };
 
-type ResearchIdea = {
+export type ResearchIdea = {
   body: string;
   connectedPaperRefs: string[];
   created: string;
@@ -130,66 +119,11 @@ type ResearchWorkspaceProps = {
   onOpenWorkbench: (prefill: string) => void;
 };
 
-type DeskPosition = { x: number; y: number; rotation: number; z: number };
-type DeskLayout = Record<string, DeskPosition>;
-type DeskSelection = { kind: "paper" | "idea"; path: string } | null;
-type PaperStack = { key: string; label: string; papers: ResearchPaper[] };
-type PaperConnection = { a: string; b: string };
-type DeskCamera = { scale: number; x: number; y: number };
-type DraftSticky = { text: string; x: number; y: number };
-type DeskContextMenu = {
-  idea?: ResearchIdea;
-  kind: "canvas" | "idea" | "paper";
-  menuX: number;
-  menuY: number;
-  paper?: ResearchPaper;
-  point: Pick<DraftSticky, "x" | "y">;
-};
-
-type DragState = {
-  captureTarget: HTMLElement;
-  kind: "idea" | "paper" | "stack";
-  key: string;
-  moved: boolean;
-  origin: DeskPosition;
-  paperId?: string;
-  pointerId: number;
-  startX: number;
-  startY: number;
-  lastX: number;
-  lastY: number;
-  lastAt: number;
-  velocityX: number;
-  velocityY: number;
-};
-
-type CameraDragState = {
-  origin: DeskCamera;
-  pointerId: number;
-  startX: number;
-  startY: number;
-};
-
-type ResearchConnectionLine = {
-  active: boolean;
-  id: string;
-  kind: "paper" | "sticky";
-  x1: number;
-  x2: number;
-  y1: number;
-  y2: number;
-};
-
-type ResearchConnectionViewport = {
-  height: number;
-  lines: ResearchConnectionLine[];
-  width: number;
-};
-
-const RESEARCH_DESK_LAYOUT_KEY = "horizon.research-desk-layout.v2";
+export type DeskSelection = { kind: "paper" | "idea"; path: string } | null;
+export type PaperStack = { key: string; label: string; papers: ResearchPaper[] };
+export type PaperConnection = { a: string; b: string };
 const RESEARCH_DESK_SORT_KEY = "horizon.research-desk-sort.v1";
 const RESEARCH_PAPER_CONNECTIONS_KEY = "horizon.research-paper-connections.v1";
-const RESEARCH_SCROLLABLE_SURFACES = ".research-reading-sheet, .research-subject-manager, .research-duplicate-review, .research-desk-context-menu, .research-sticky-delete-confirm";
 const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
   to_read: "To read",
   skimming: "Skimming",
@@ -197,39 +131,12 @@ const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
   annotated: "Annotated",
 };
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function readableInsights(value: string) {
   return String(value || "")
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2")
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function PaperInlineDetails({ paper }: { paper: ResearchPaper }) {
-  const detail = readableInsights(paper.abstract || paper.summary || paper.citation)
-    || "No summary or abstract is available for this paper.";
-  return (
-    <span className="research-paper-close-details">
-      <span className="research-paper-detail-label">{paper.abstractLabel || "Paper details"}</span>
-      <span className="research-paper-detail-copy">{detail}</span>
-    </span>
-  );
-}
-
-function ideaDeskKey(path: string) {
-  return `idea:${path}`;
-}
-
-function stackDeskKey(mode: SortMode, key: string) {
-  return `stack:${mode}:${key}`;
-}
-
-function paperDeskKey(id: string) {
-  return `paper:${id}`;
 }
 
 function normalizedPaperDoi(value: string) {
@@ -249,10 +156,6 @@ function paperConnectionRef(paper: ResearchPaper) {
 
 function paperLinkRef(paper: ResearchPaper) {
   return paperConnectionRef(paper) || `id:${paper.id}`;
-}
-
-function paperMatchesLinkRef(paper: ResearchPaper, ref: string) {
-  return ref.startsWith("id:") ? paper.id === ref.slice(3) : paperMatchesConnectionRef(paper, ref);
 }
 
 function normalizedPaperLink(a: string, b: string): PaperConnection | null {
@@ -283,11 +186,6 @@ function connectedPapersForIdea(idea: ResearchIdea, papers: ResearchPaper[]) {
 function sourceLabel(source: ResearchPaper["source"]) {
   if (source === "vault+zotero") return "Vault + Zotero";
   return source === "vault" ? "Vault note" : "Zotero";
-}
-
-function subjectHue(subject: string) {
-  const seed = Array.from(subject || "Research").reduce((total, character) => total + character.charCodeAt(0), 0);
-  return 178 + (seed % 118);
 }
 
 function authorBucket(paper: ResearchPaper) {
@@ -358,78 +256,6 @@ function buildPaperStacks(papers: ResearchPaper[], mode: SortMode): PaperStack[]
   return entries.map(([label, stackPapers]) => ({ key: label, label, papers: stackPapers }));
 }
 
-function defaultIdeaPosition(index: number): DeskPosition {
-  const slots = [
-    { x: 0.52, y: 0.56 },
-    { x: 0.34, y: 0.56 },
-    { x: 0.16, y: 0.56 },
-    { x: 0.52, y: 0.86 },
-    { x: 0.34, y: 0.86 },
-    { x: 0.16, y: 0.86 },
-  ];
-  const slot = slots[index % slots.length];
-  const pass = Math.floor(index / slots.length);
-  return {
-    x: clamp(slot.x + (pass % 2 ? -0.025 : 0.025) * pass, 0.08, 0.58),
-    y: clamp(slot.y - pass * 0.045, 0.18, 0.9),
-    rotation: [-2.5, 3.5, 1.2, -3.2][index % 4],
-    z: 1400 + index,
-  };
-}
-
-function ideaPositionsOverlap(a: DeskPosition, b: DeskPosition) {
-  return Math.abs(a.x - b.x) < 0.15 && Math.abs(a.y - b.y) < 0.24;
-}
-
-function openIdeaPosition(preferred: DeskPosition, occupied: DeskPosition[]) {
-  const offsets = [
-    { x: 0, y: 0 },
-    { x: -0.18, y: 0 },
-    { x: 0.18, y: 0 },
-    { x: -0.09, y: -0.28 },
-    { x: -0.09, y: 0.28 },
-    { x: 0.09, y: -0.28 },
-    { x: 0.09, y: 0.28 },
-  ];
-  for (const offset of offsets) {
-    const candidate = {
-      ...preferred,
-      x: offset.x || offset.y ? clamp(preferred.x + offset.x, 0.08, 0.6) : preferred.x,
-      y: offset.x || offset.y ? clamp(preferred.y + offset.y, 0.18, 0.9) : preferred.y,
-    };
-    if (!occupied.some((position) => ideaPositionsOverlap(candidate, position))) return candidate;
-  }
-  return {
-    ...preferred,
-    x: clamp(preferred.x - 0.12, 0.08, 0.6),
-    y: clamp(preferred.y - 0.34, 0.18, 0.9),
-  };
-}
-
-function buildIdeaLayout(ideas: ResearchIdea[], source: DeskLayout = {}) {
-  const layout: DeskLayout = {};
-  const occupied: DeskPosition[] = [];
-  ideas.forEach((idea, index) => {
-    const key = ideaDeskKey(idea.path);
-    const position = openIdeaPosition(source[key] || defaultIdeaPosition(index), occupied);
-    layout[key] = position;
-    occupied.push(position);
-  });
-  return layout;
-}
-
-function storedDeskLayout() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(RESEARCH_DESK_LAYOUT_KEY) || "{}");
-    if (!parsed || typeof parsed !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(parsed as DeskLayout).filter(([key]) => key.startsWith("idea:") || key.startsWith("paper:") || key.startsWith("stack:")),
-    ) as DeskLayout;
-  } catch {
-    return {};
-  }
-}
-
 function storedPaperConnections(): PaperConnection[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(RESEARCH_PAPER_CONNECTIONS_KEY) || "[]");
@@ -454,7 +280,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const [papers, setPapers] = useState<ResearchPaper[]>([]);
   const [ideas, setIdeas] = useState<ResearchIdea[]>([]);
   const [sources, setSources] = useState<ResearchSources | null>(null);
-  const [layout, setLayout] = useState<DeskLayout>({});
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -463,63 +288,27 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const [statusFilter, setStatusFilter] = useState("All stages");
   const [metadataFocus, setMetadataFocus] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>(() => storedSortMode());
-  const [organizing, setOrganizing] = useState<"" | "gathering" | "settling">("");
-  const [arrangementRevision, setArrangementRevision] = useState(0);
   const [paperConnections, setPaperConnections] = useState<PaperConnection[]>(() => storedPaperConnections());
   const [selection, setSelection] = useState<DeskSelection>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [heldIdeaPath, setHeldIdeaPath] = useState("");
-  const [draggingKey, setDraggingKey] = useState("");
-  const [dropTargetPaperId, setDropTargetPaperId] = useState("");
-  const [camera, setCamera] = useState<DeskCamera>({ scale: 1, x: 0, y: 0 });
-  const [cameraDragging, setCameraDragging] = useState(false);
-  const [contextMenu, setContextMenu] = useState<DeskContextMenu | null>(null);
-  const [draftSticky, setDraftSticky] = useState<DraftSticky | null>(null);
-  const [savingSticky, setSavingSticky] = useState(false);
   const [editingIdea, setEditingIdea] = useState<{ path: string; text: string } | null>(null);
   const [savingIdea, setSavingIdea] = useState(false);
   const [connectionSavingIdeaPath, setConnectionSavingIdeaPath] = useState("");
   const [pendingDeleteIdea, setPendingDeleteIdea] = useState<ResearchIdea | null>(null);
   const [deletingIdea, setDeletingIdea] = useState(false);
-  const [connectionViewport, setConnectionViewport] = useState<ResearchConnectionViewport>({ height: 0, lines: [], width: 0 });
   const [shelving, setShelving] = useState(false);
   const [duplicateReviewOpen, setDuplicateReviewOpen] = useState(false);
   const [subjectManagerOpen, setSubjectManagerOpen] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
   const [subjectSaving, setSubjectSaving] = useState(false);
-  const [stackCursors, setStackCursors] = useState<Record<string, number>>({});
-  const [expandedStackKeys, setExpandedStackKeys] = useState<string[]>([]);
-  const deskRef = useRef<HTMLDivElement>(null);
   const readingSheetRef = useRef<HTMLElement>(null);
-  const draftStickyRef = useRef<HTMLTextAreaElement>(null);
-  const dragRef = useRef<DragState | null>(null);
   const ideasRef = useRef<ResearchIdea[]>([]);
   const connectionSavingRef = useRef(new Set<string>());
-  const suppressStackClickRef = useRef("");
-  const suppressPaperClickRef = useRef("");
-  const cameraDragRef = useRef<CameraDragState | null>(null);
-  const organizeTimers = useRef<number[]>([]);
-  const viewportSizeRef = useRef({
-    height: typeof window === "undefined" ? 0 : window.innerHeight,
-    width: typeof window === "undefined" ? 0 : window.innerWidth,
-  });
-  const requestDeskClampRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     ideasRef.current = ideas;
   }, [ideas]);
-
-  function clearOrganizeTimers() {
-    organizeTimers.current.forEach((timer) => window.clearTimeout(timer));
-    organizeTimers.current = [];
-  }
-
-  function placeIdeas(nextIdeas: ResearchIdea[], useStoredLayout = false) {
-    const source = useStoredLayout ? storedDeskLayout() : layout;
-    const deskPositions = Object.fromEntries(Object.entries(source).filter(([key]) => key.startsWith("paper:") || key.startsWith("stack:"))) as DeskLayout;
-    const next = { ...deskPositions, ...buildIdeaLayout(nextIdeas, source) };
-    setLayout(next);
-    persistLayout(next);
-  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -533,9 +322,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         setPapers(nextPapers);
         setIdeas(nextIdeas);
         setSources(paperData?.sources || null);
-        placeIdeas(nextIdeas, true);
-        const firstDeskPaper = buildPaperStacks(nextPapers, sortMode)[0]?.papers[0];
-        setSelection((current) => current || (firstDeskPaper ? { kind: "paper", path: firstDeskPaper.id } : nextIdeas[0] ? { kind: "idea", path: nextIdeas[0].path } : null));
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -544,7 +330,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       .finally(() => setLoading(false));
     return () => {
       controller.abort();
-      clearOrganizeTimers();
     };
     // The saved sort is intentionally read once when this workspace mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -578,23 +363,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     });
   }, [metadataFocus, papers, query, statusFilter, subject]);
 
-  // Paper filters are a finding tool. Sticky notes are desk objects and stay visible while
-  // a person searches for one or more papers to connect to the same thought.
-  const visibleIdeas = ideas;
   const deskStacks = useMemo(
-    () => buildPaperStacks(visiblePapers, sortMode),
-    [sortMode, visiblePapers],
-  );
-  const deskStackGroups = useMemo(
-    () => deskStacks.map((stack) => ({
-      key: stackDeskKey(sortMode, stack.key),
-      paperIds: stack.papers.map((paper) => paper.id),
-    })),
-    [deskStacks, sortMode],
-  );
-  const deskStackPlan = useMemo(
-    () => planExpandedResearchStacks(deskStackGroups, expandedStackKeys),
-    [deskStackGroups, expandedStackKeys],
+    () => buildPaperStacks(papers, sortMode),
+    [papers, sortMode],
   );
 
   const selectedPaper = selection?.kind === "paper" ? papers.find((paper) => paper.id === selection.path) || null : null;
@@ -622,336 +393,20 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
   useEffect(() => {
     if (loading) return;
-    const visiblePaperIds = new Set(visiblePapers.map((paper) => paper.id));
-    const visibleIdeaPaths = new Set(visibleIdeas.map((idea) => idea.path));
-    const firstPaper = deskStacks[0]?.papers[0];
-    const firstIdea = heldIdea || visibleIdeas[0];
     setSelection((current) => {
-      if (current?.kind === "paper" && visiblePaperIds.has(current.path)) return current;
-      if (current?.kind === "idea" && visibleIdeaPaths.has(current.path)) return current;
-      return firstPaper ? { kind: "paper", path: firstPaper.id } : firstIdea ? { kind: "idea", path: firstIdea.path } : null;
+      if (!current) return null;
+      if (current.kind === "paper" && papers.some((paper) => paper.id === current.path)) return current;
+      if (current.kind === "idea" && ideas.some((idea) => idea.path === current.path)) return current;
+      return null;
     });
-  }, [deskStacks, heldIdea, loading, visibleIdeas, visiblePapers]);
-
-  useLayoutEffect(() => {
-    const desk = deskRef.current;
-    if (!desk) {
-      setConnectionViewport({ height: 0, lines: [], width: 0 });
-      return undefined;
-    }
-    let frame = 0;
-    let resizeFrame = 0;
-    let resizeSettleTimer = 0;
-    let viewportResizePending = false;
-    const updateLines = () => {
-      const deskRect = desk.getBoundingClientRect();
-      const ideaElements = new Map(
-        [...desk.querySelectorAll<HTMLElement>("[data-research-idea-path]")]
-          .map((element) => [element.dataset.researchIdeaPath || "", element] as const),
-      );
-      const paperElements = new Map(
-        [...desk.querySelectorAll<HTMLElement>("[data-research-paper-id]")]
-          .map((element) => [element.dataset.researchPaperId || "", element] as const),
-      );
-      const stackElements = new Map(
-        [...desk.querySelectorAll<HTMLElement>("[data-research-stack-key]")]
-          .map((element) => [element.dataset.researchStackKey || "", element] as const),
-      );
-      const lines: ResearchConnectionLine[] = [];
-      const elementForPaper = (paper: ResearchPaper) => {
-        const stack = deskStacks.find((candidate) => candidate.papers.some((item) => item.id === paper.id));
-        return paperElements.get(paper.id) || (stack ? stackElements.get(stack.key) : null);
-      };
-      for (const idea of visibleIdeas) {
-        const ideaElement = ideaElements.get(idea.path);
-        if (!ideaElement) continue;
-        const ideaRect = ideaElement.getBoundingClientRect();
-        const connectedPapers = connectedPapersForIdea(idea, visiblePapers);
-        connectedPapers.forEach((paper, index) => {
-          const target = elementForPaper(paper);
-          if (!target) return;
-          const targetRect = target.getBoundingClientRect();
-          const x1 = ideaRect.left + ideaRect.width / 2 - deskRect.left;
-          const y1 = ideaRect.top + ideaRect.height / 2 - deskRect.top;
-          const x2 = targetRect.left + targetRect.width / 2 - deskRect.left + ((index % 3) - 1) * 5;
-          const y2 = targetRect.top + targetRect.height / 2 - deskRect.top + ((index % 2) ? 4 : -4);
-          if (Math.hypot(x2 - x1, y2 - y1) < 28) return;
-          lines.push({
-            active: (selection?.kind === "idea" && selection.path === idea.path)
-              || (selection?.kind === "paper" && selection.path === paper.id),
-            id: `${idea.path}:${paperConnectionRef(paper)}`,
-            kind: "sticky",
-            x1,
-            x2,
-            y1,
-            y2,
-          });
-        });
-      }
-      for (const connection of paperConnections) {
-        const sourcePaper = visiblePapers.find((paper) => paperMatchesLinkRef(paper, connection.a));
-        const targetPaper = visiblePapers.find((paper) => paperMatchesLinkRef(paper, connection.b));
-        if (!sourcePaper || !targetPaper) continue;
-        const sourceElement = elementForPaper(sourcePaper);
-        const targetElement = elementForPaper(targetPaper);
-        if (!sourceElement || !targetElement || sourceElement === targetElement) continue;
-        const sourceRect = sourceElement.getBoundingClientRect();
-        const targetRect = targetElement.getBoundingClientRect();
-        const x1 = sourceRect.left + sourceRect.width / 2 - deskRect.left;
-        const y1 = sourceRect.top + sourceRect.height / 2 - deskRect.top;
-        const x2 = targetRect.left + targetRect.width / 2 - deskRect.left;
-        const y2 = targetRect.top + targetRect.height / 2 - deskRect.top;
-        if (Math.hypot(x2 - x1, y2 - y1) < 28) continue;
-        lines.push({
-          active: selection?.kind === "paper" && (selection.path === sourcePaper.id || selection.path === targetPaper.id),
-          id: `paper:${paperLinkId(connection)}`,
-          kind: "paper",
-          x1,
-          x2,
-          y1,
-          y2,
-        });
-      }
-      setConnectionViewport({ height: deskRect.height, lines, width: deskRect.width });
-    };
-    const scheduleUpdate = () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(updateLines);
-    };
-    const clampLayoutAfterResize = () => {
-      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
-      resizeFrame = window.requestAnimationFrame(() => {
-        const deskRect = desk.getBoundingClientRect();
-        if (deskRect.width <= 0 || deskRect.height <= 0) {
-          scheduleUpdate();
-          return;
-        }
-        const sheetRect = readingSheetRef.current?.getBoundingClientRect();
-        const usableScreenLeft = 16;
-        const usableScreenRight = sheetRect && sheetRect.width > 0 && sheetRect.left > deskRect.left + 180
-          ? Math.min(deskRect.width - 16, sheetRect.left - deskRect.left - 16)
-          : deskRect.width - 16;
-        const usableScreenTop = 52;
-        const usableScreenBottom = deskRect.height - 52;
-        const usableWorld = screenBoundsToResearchWorld({
-          bottom: usableScreenBottom,
-          left: usableScreenLeft,
-          right: usableScreenRight,
-          top: usableScreenTop,
-        }, camera);
-        const stackElements = new Map(
-          [...desk.querySelectorAll<HTMLElement>("[data-research-stack-key]")]
-            .map((element) => [element.dataset.researchStackKey || "", element] as const),
-        );
-        const freePaperElements = new Map(
-          [...desk.querySelectorAll<HTMLElement>(".research-paper-stack-expanded .research-paper-free-positioned[data-research-paper-id]")]
-            .map((element) => [element.dataset.researchPaperId || "", element] as const),
-        );
-        const ideaElements = new Map(
-          [...desk.querySelectorAll<HTMLElement>("[data-research-idea-path]")]
-            .map((element) => [element.dataset.researchIdeaPath || "", element] as const),
-        );
-        const worldRect = (element: HTMLElement) => {
-          const rect = element.getBoundingClientRect();
-          return {
-            height: rect.height / camera.scale,
-            left: (rect.left - deskRect.left - camera.x) / camera.scale,
-            top: (rect.top - deskRect.top - camera.y) / camera.scale,
-            width: rect.width / camera.scale,
-          };
-        };
-        const correctionFor = (
-          rect: ReturnType<typeof worldRect>,
-          offset: Pick<DeskPosition, "x" | "y"> = { x: 0, y: 0 },
-        ) => {
-          const left = rect.left + offset.x;
-          const top = rect.top + offset.y;
-          const right = left + rect.width;
-          const bottom = top + rect.height;
-          const correctionX = rect.width > usableWorld.right - usableWorld.left
-            ? usableWorld.left - left
-            : left < usableWorld.left
-              ? usableWorld.left - left
-              : right > usableWorld.right
-                ? usableWorld.right - right
-                : 0;
-          const correctionY = rect.height > usableWorld.bottom - usableWorld.top
-            ? usableWorld.top - top
-            : top < usableWorld.top
-              ? usableWorld.top - top
-              : bottom > usableWorld.bottom
-                ? usableWorld.bottom - bottom
-                : 0;
-          return { x: correctionX, y: correctionY };
-        };
-        setLayout((current) => {
-          let changed = false;
-          const next = { ...current };
-          for (const stack of deskStacks) {
-            const key = stackDeskKey(sortMode, stack.key);
-            const position = current[key];
-            const heading = stackElements.get(stack.key)?.querySelector<HTMLElement>(".research-paper-stack-heading");
-            if (!position || !heading) continue;
-            const correction = correctionFor(worldRect(heading));
-            if (!correction.x && !correction.y) continue;
-            next[key] = {
-              ...position,
-              x: position.x + correction.x,
-              y: position.y + correction.y,
-            };
-            changed = true;
-          }
-
-          const paperXLimit = deskRect.width * 0.72;
-          const paperYLimit = deskRect.height * 0.72;
-          for (const [key, position] of Object.entries(current)) {
-            if (!key.startsWith("paper:") || !isFreeResearchPaperPosition(position)) continue;
-            const boundedX = clamp(position.x, -paperXLimit, paperXLimit);
-            const boundedY = clamp(position.y, -paperYLimit, paperYLimit);
-            if (boundedX === position.x && boundedY === position.y) continue;
-            next[key] = { ...position, x: boundedX, y: boundedY };
-            changed = true;
-          }
-
-          for (const [paperId, element] of freePaperElements) {
-            const key = paperDeskKey(paperId);
-            const paperIndex = Number(element.style.getPropertyValue("--paper-index")) || 0;
-            const original = current[key] || { x: 0, y: 0, rotation: 0, z: 1000 + paperIndex };
-            const position = next[key] || original;
-            const correction = correctionFor(worldRect(element), {
-              x: position.x - original.x,
-              y: position.y - original.y,
-            });
-            if (!correction.x && !correction.y) continue;
-            next[key] = {
-              ...position,
-              x: position.x + correction.x,
-              y: position.y + correction.y,
-            };
-            changed = true;
-          }
-
-          for (const [ideaPath, element] of ideaElements) {
-            const key = ideaDeskKey(ideaPath);
-            const original = current[key];
-            if (!original) continue;
-            const position = {
-              ...original,
-              x: clamp(original.x, 0.05, 0.94),
-              y: clamp(original.y, 0.09, 0.91),
-            };
-            const correction = correctionFor(worldRect(element), {
-              x: (position.x - original.x) * deskRect.width,
-              y: (position.y - original.y) * deskRect.height,
-            });
-            const nextX = position.x + correction.x / deskRect.width;
-            const nextY = position.y + correction.y / deskRect.height;
-            if (nextX === original.x && nextY === original.y) continue;
-            next[key] = { ...position, x: nextX, y: nextY };
-            changed = true;
-          }
-
-          if (changed) persistLayout(next);
-          return changed ? next : current;
-        });
-        viewportResizePending = false;
-        scheduleUpdate();
-      });
-    };
-    requestDeskClampRef.current = clampLayoutAfterResize;
-    const scheduleResizeClamp = () => {
-      if (resizeSettleTimer) window.clearTimeout(resizeSettleTimer);
-      resizeSettleTimer = window.setTimeout(clampLayoutAfterResize, 180);
-    };
-    const handleDeskResize = () => {
-      scheduleUpdate();
-      if (viewportResizePending) scheduleResizeClamp();
-    };
-    const handleWindowResize = () => {
-      const nextViewport = { height: window.innerHeight, width: window.innerWidth };
-      const previousViewport = viewportSizeRef.current;
-      if (nextViewport.height === previousViewport.height && nextViewport.width === previousViewport.width) {
-        scheduleUpdate();
-        return;
-      }
-      viewportSizeRef.current = nextViewport;
-      viewportResizePending = true;
-      scheduleResizeClamp();
-    };
-    handleDeskResize();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleDeskResize) : null;
-    observer?.observe(desk);
-    window.addEventListener("resize", handleWindowResize);
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
-      if (resizeSettleTimer) window.clearTimeout(resizeSettleTimer);
-      if (requestDeskClampRef.current === clampLayoutAfterResize) requestDeskClampRef.current = null;
-      observer?.disconnect();
-      window.removeEventListener("resize", handleWindowResize);
-    };
-  }, [camera, deskStacks, expandedStackKeys, layout, paperConnections, selection, stackCursors, visibleIdeas, visiblePapers]);
-
-  useEffect(() => {
-    if (!isActive) return;
-    const pressed = new Set<string>();
-    let frame = 0;
-    const isTypingTarget = (target: EventTarget | null) =>
-      target instanceof HTMLElement &&
-      (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName));
-    const nudgeCamera = () => {
-      const horizontal = (pressed.has("d") ? 1 : 0) - (pressed.has("a") ? 1 : 0);
-      const vertical = (pressed.has("s") ? 1 : 0) - (pressed.has("w") ? 1 : 0);
-      if (horizontal || vertical) {
-        setCamera((current) => {
-          const bounds = cameraBoundsForScale(current.scale);
-          return {
-            ...current,
-            x: clamp(current.x - horizontal * 6, bounds.minX, bounds.maxX),
-            y: clamp(current.y - vertical * 6, bounds.minY, bounds.maxY),
-          };
-        });
-      }
-    };
-    const moveCamera = () => {
-      if (!pressed.size) {
-        frame = 0;
-        return;
-      }
-      nudgeCamera();
-      frame = window.requestAnimationFrame(moveCamera);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (!["w", "a", "s", "d"].includes(key) || isTypingTarget(event.target)) return;
-      event.preventDefault();
-      const wasPressed = pressed.has(key);
-      pressed.add(key);
-      setContextMenu(null);
-      if (!wasPressed) nudgeCamera();
-      if (!frame) frame = window.requestAnimationFrame(moveCamera);
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (["w", "a", "s", "d"].includes(key)) pressed.delete(key);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      if (frame) window.cancelAnimationFrame(frame);
-    };
-  }, [isActive]);
+  }, [ideas, loading, papers]);
 
   useEffect(() => {
     if (!isActive) return;
     const closeTopSurface = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       let handled = true;
-      if (contextMenu) {
-        setContextMenu(null);
-      } else if (pendingDeleteIdea) {
+      if (pendingDeleteIdea) {
         setPendingDeleteIdea(null);
       } else if (editingIdea) {
         setEditingIdea(null);
@@ -959,12 +414,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         setDuplicateReviewOpen(false);
       } else if (subjectManagerOpen) {
         setSubjectManagerOpen(false);
-      } else if (expandedStackKeys.length) {
-        setExpandedStackKeys([]);
-        setArrangementRevision((current) => current + 1);
-        setMessage("Open paper piles restacked.");
-      } else if (draftSticky) {
-        setDraftSticky(null);
+      } else if (inspectorOpen) {
+        setInspectorOpen(false);
       } else {
         handled = false;
       }
@@ -974,168 +425,24 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     };
     window.addEventListener("keydown", closeTopSurface, true);
     return () => window.removeEventListener("keydown", closeTopSurface, true);
-  }, [contextMenu, draftSticky, duplicateReviewOpen, editingIdea, expandedStackKeys, isActive, pendingDeleteIdea, subjectManagerOpen]);
-
-  useEffect(() => {
-    const closeContextMenu = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest(".research-desk-context-menu")) return;
-      setContextMenu(null);
-    };
-    window.addEventListener("pointerdown", closeContextMenu);
-    return () => window.removeEventListener("pointerdown", closeContextMenu);
-  }, []);
-
-  useEffect(() => {
-    const desk = deskRef.current;
-    if (!desk) return undefined;
-    const preventDeskWheelScroll = (event: WheelEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!event.deltaY || target?.closest(RESEARCH_SCROLLABLE_SURFACES)) return;
-      event.preventDefault();
-    };
-    desk.addEventListener("wheel", preventDeskWheelScroll, { passive: false });
-    return () => desk.removeEventListener("wheel", preventDeskWheelScroll);
-  }, []);
-
-  function persistLayout(next: DeskLayout) {
-    try { localStorage.setItem(RESEARCH_DESK_LAYOUT_KEY, JSON.stringify(next)); } catch { /* local storage is optional */ }
-  }
+  }, [duplicateReviewOpen, editingIdea, inspectorOpen, isActive, pendingDeleteIdea, subjectManagerOpen]);
 
   function persistPaperConnections(next: PaperConnection[]) {
     try { localStorage.setItem(RESEARCH_PAPER_CONNECTIONS_KEY, JSON.stringify(next)); } catch { /* local storage is optional */ }
   }
 
-  function togglePaperConnection(sourcePaper: ResearchPaper, targetPaper: ResearchPaper) {
+  function togglePaperConnection(sourcePaper: ResearchPaper, targetPaper: ResearchPaper): "connected" | "disconnected" | undefined {
     const connection = normalizedPaperLink(paperLinkRef(sourcePaper), paperLinkRef(targetPaper));
     if (!connection) return;
     const id = paperLinkId(connection);
-    setPaperConnections((current) => {
-      const exists = current.some((item) => paperLinkId(item) === id);
-      const next = exists ? current.filter((item) => paperLinkId(item) !== id) : [...current, connection];
-      persistPaperConnections(next);
-      setMessage(exists
-        ? `Disconnected ${sourcePaper.title} from ${targetPaper.title}.`
-        : `Connected ${sourcePaper.title} to ${targetPaper.title}. Drag either paper onto the other again to disconnect.`);
-      return next;
-    });
-  }
-
-  function removePaperConnections(paper: ResearchPaper) {
-    const ref = paperLinkRef(paper);
-    setPaperConnections((current) => {
-      const next = current.filter((item) => item.a !== ref && item.b !== ref);
-      persistPaperConnections(next);
-      setMessage(next.length === current.length ? "This paper has no paper-to-paper links." : `Removed ${current.length - next.length} paper connection${current.length - next.length === 1 ? "" : "s"}.`);
-      return next;
-    });
-  }
-
-  function paperConnectionCount(paper: ResearchPaper) {
-    const ref = paperLinkRef(paper);
-    return paperConnections.filter((item) => item.a === ref || item.b === ref).length;
-  }
-
-  function deskPoint(clientX: number, clientY: number): Pick<DraftSticky, "x" | "y"> | null {
-    const rect = deskRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    return {
-      x: clamp((clientX - rect.left - camera.x) / (rect.width * camera.scale), 0.06, 0.92),
-      y: clamp((clientY - rect.top - camera.y) / (rect.height * camera.scale), 0.14, 0.9),
-    };
-  }
-
-  function stackCursor(stack: PaperStack) {
-    if (!stack.papers.length) return 0;
-    const cursor = stackCursors[stack.key] || 0;
-    return ((cursor % stack.papers.length) + stack.papers.length) % stack.papers.length;
-  }
-
-  function cycleStack(stack: PaperStack, direction: number) {
-    if (stack.papers.length < 2) return;
-    const nextIndex = (stackCursor(stack) + direction + stack.papers.length) % stack.papers.length;
-    const nextPaper = stack.papers[nextIndex];
-    setStackCursors((current) => ({ ...current, [stack.key]: nextIndex }));
-    setSelection({ kind: "paper", path: nextPaper.id });
-  }
-
-  function stackExpansionKey(stack: PaperStack) {
-    return stackDeskKey(sortMode, stack.key);
-  }
-
-  function stackIsExpanded(stack: PaperStack) {
-    return expandedStackKeys.includes(stackExpansionKey(stack));
-  }
-
-  function toggleStackExpansion(stack: PaperStack) {
-    const key = stackExpansionKey(stack);
-    const opening = !expandedStackKeys.includes(key);
-    const nextExpandedKeys = opening
-      ? [...expandedStackKeys, key]
-      : expandedStackKeys.filter((item) => item !== key);
-    setExpandedStackKeys(nextExpandedKeys);
-    setArrangementRevision((current) => current + 1);
-    setSubjectManagerOpen(false);
-    setDuplicateReviewOpen(false);
-    const currentPaper = selection?.kind === "paper" ? stack.papers.find((paper) => paper.id === selection.path) : null;
-    const paper = currentPaper || stack.papers[stackCursor(stack)];
-    if (paper) setSelection({ kind: "paper", path: paper.id });
-    setMessage(opening
-      ? `${stack.label} spread into ${stack.papers.length} ordered ${stack.papers.length === 1 ? "paper" : "papers"}. The generated grid reflowed; freely placed papers kept their saved spots.`
-      : `${stack.label} restacked.`);
-  }
-
-  function spreadAllPiles() {
-    const nextExpandedKeys = deskStackPlan.map((group) => group.key);
-    if (!nextExpandedKeys.length) return;
-    setExpandedStackKeys(nextExpandedKeys);
-    setArrangementRevision((current) => current + 1);
-    setSubjectManagerOpen(false);
-    setDuplicateReviewOpen(false);
-    setMessage(`${nextExpandedKeys.length} ${nextExpandedKeys.length === 1 ? "pile" : "piles"} spread into an ordered grid. Saved free placements were preserved.`);
-  }
-
-  function fitDesk() {
-    const rect = deskRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const grid = deskRef.current?.querySelector<HTMLElement>(".research-stack-grid");
-    const contentHeight = Math.max(260, (grid?.scrollHeight || 0) + 74);
-    const contentWidth = Math.max(grid?.clientWidth || 0, grid?.scrollWidth || 0);
-    const widthScale = grid?.clientWidth && contentWidth ? grid.clientWidth / contentWidth : 1;
-    const scale = clamp(Math.min(1, (rect.height - 42) / contentHeight, widthScale), 0.12, 1);
-    setCamera({ scale, x: 0, y: 0 });
-    setMessage(`Desk fitted to ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}.`);
-  }
-
-  function cameraBoundsForScale(scale: number) {
-    const desk = deskRef.current;
-    const rect = desk?.getBoundingClientRect();
-    const grid = desk?.querySelector<HTMLElement>(".research-stack-grid");
-    const world = desk?.querySelector<HTMLElement>(".research-desk-world");
-    const viewportWidth = Math.max(1, rect?.width || 1);
-    const viewportHeight = Math.max(1, rect?.height || 1);
-    let contentLeft = 0;
-    let contentTop = 0;
-    if (world && world.offsetWidth > 0) {
-      const worldRect = world.getBoundingClientRect();
-      const renderedWorldScale = worldRect.width / world.offsetWidth;
-      if (renderedWorldScale > 0) {
-        for (const element of world.querySelectorAll<HTMLElement>("[data-research-stack-key], [data-research-paper-id], [data-research-idea-path]")) {
-          const elementRect = element.getBoundingClientRect();
-          contentLeft = Math.min(contentLeft, (elementRect.left - worldRect.left) / renderedWorldScale);
-          contentTop = Math.min(contentTop, (elementRect.top - worldRect.top) / renderedWorldScale);
-        }
-      }
-    }
-    return researchDeskCameraBounds({
-      contentHeight: Math.max(260, (grid?.scrollHeight || 0) + 74),
-      contentLeft,
-      contentTop,
-      contentWidth: Math.max(grid?.clientWidth || 0, grid?.scrollWidth || 0, viewportWidth),
-      scale,
-      viewportHeight,
-      viewportWidth,
-    });
+    const exists = paperConnections.some((item) => paperLinkId(item) === id);
+    const next = exists ? paperConnections.filter((item) => paperLinkId(item) !== id) : [...paperConnections, connection];
+    persistPaperConnections(next);
+    setPaperConnections(next);
+    setMessage(exists
+      ? `Disconnected ${sourcePaper.title} from ${targetPaper.title}.`
+      : `Connected ${sourcePaper.title} to ${targetPaper.title}.`);
+    return exists ? "disconnected" : "connected";
   }
 
   function showAllPapers(nextMessage = "Showing all papers.") {
@@ -1146,103 +453,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setMessage(nextMessage);
   }
 
-  function beginCameraDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const target = event.target instanceof Element ? event.target : null;
-    if (
-      event.button !== 0
-      || target?.closest(
-        ".research-desk-item, .research-paper-stack, .research-focused-stack, .research-stack-scrim, .research-stack-label, .research-draft-sticky, .research-location-tab, .research-reading-sheet, .research-desk-toolbar, .research-desk-status, .research-desk-context-menu, .research-sticky-delete-confirm, .research-subject-manager, .research-duplicate-review",
-      )
-    ) return;
-    event.currentTarget.focus({ preventScroll: true });
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Drag still works if pointer capture is unavailable. */ }
-    cameraDragRef.current = {
-      origin: camera,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-    };
-    setContextMenu(null);
-    setCameraDragging(true);
-  }
-
-  function moveCameraDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const drag = cameraDragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    const bounds = cameraBoundsForScale(drag.origin.scale);
-    setCamera({
-      scale: drag.origin.scale,
-      x: clamp(drag.origin.x + event.clientX - drag.startX, bounds.minX, bounds.maxX),
-      y: clamp(drag.origin.y + event.clientY - drag.startY, bounds.minY, bounds.maxY),
-    });
-  }
-
-  function endCameraDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (cameraDragRef.current?.pointerId !== event.pointerId) return;
-    cameraDragRef.current = null;
-    setCameraDragging(false);
-  }
-
-  function zoomDesk(event: ReactWheelEvent<HTMLDivElement>) {
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(RESEARCH_SCROLLABLE_SURFACES)) return;
-    const rect = deskRef.current?.getBoundingClientRect();
-    if (!rect || !event.deltaY) return;
-    event.currentTarget.focus({ preventScroll: true });
-    const localX = event.clientX - rect.left;
-    const localY = event.clientY - rect.top;
-    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
-    setCamera((current) => {
-      const scale = clamp(current.scale * Math.exp(-delta * 0.0014), 0.12, 4);
-      const worldX = (localX - current.x) / current.scale;
-      const worldY = (localY - current.y) / current.scale;
-      const bounds = cameraBoundsForScale(scale);
-      return {
-        scale,
-        x: clamp(localX - worldX * scale, bounds.minX, bounds.maxX),
-        y: clamp(localY - worldY * scale, bounds.minY, bounds.maxY),
-      };
-    });
-    setContextMenu(null);
-  }
-
-  function startDraftSticky(point: Pick<DraftSticky, "x" | "y">) {
-    setContextMenu(null);
-    setDraftSticky({ ...point, text: "" });
-    window.requestAnimationFrame(() => draftStickyRef.current?.focus());
-  }
-
-  function openDeskContextMenu(
-    event: ReactMouseEvent<HTMLElement>,
-    kind: DeskContextMenu["kind"],
-    details: Pick<DeskContextMenu, "idea" | "paper"> = {},
-  ) {
-    const rect = deskRef.current?.getBoundingClientRect();
-    const point = deskPoint(event.clientX, event.clientY);
-    if (!rect || !point) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setContextMenu({
-      ...details,
-      kind,
-      menuX: clamp(event.clientX - rect.left, 10, Math.max(10, rect.width - 208)),
-      menuY: clamp(event.clientY - rect.top, 10, Math.max(10, rect.height - 238)),
-      point,
-    });
-  }
-
-  function handleDeskDoubleClick(event: ReactMouseEvent<HTMLElement>) {
-    const target = event.target instanceof Element ? event.target : null;
-    if (target?.closest(".research-desk-item, .research-paper-stack, .research-focused-stack, .research-stack-scrim, .research-draft-sticky, .research-location-tab, .research-reading-sheet, .research-desk-toolbar, .research-desk-status, .research-desk-context-menu, .research-sticky-delete-confirm, .research-subject-manager, .research-duplicate-review")) return;
-    const point = deskPoint(event.clientX, event.clientY);
-    if (point) startDraftSticky(point);
-  }
-
   function toggleMetadataFocus() {
     const next = !metadataFocus;
     setMetadataFocus(next);
-    setContextMenu(null);
     if (!next) {
       setMessage(query.trim() || subject !== "All subjects" || statusFilter !== "All stages" ? "Missing-details filter cleared." : "Showing all papers.");
       return;
@@ -1295,64 +508,30 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     }
   }
 
-  async function saveDraftSticky() {
-    const pending = draftSticky;
-    if (!pending) return;
-    const body = pending.text.trim();
-    if (!body) {
-      setDraftSticky(null);
-      return;
-    }
-    setSavingSticky(true);
-    try {
-      const response = await fetch("/api/research/ideas", {
-        body: JSON.stringify({ body }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      const data = await response.json();
-      if (!response.ok || !data?.idea) throw new Error("Sticky save failed");
-      const idea = data.idea as ResearchIdea;
-      setIdeas((current) => [idea, ...current]);
-      setLayout((current) => {
-        const top = Math.max(1400, ...Object.values(current).map((item) => item.z || 0)) + 1;
-        const position = openIdeaPosition(
-          { x: pending.x, y: pending.y, rotation: -1.5, z: top },
-          Object.values(current),
-        );
-        const next = {
-          ...current,
-          [ideaDeskKey(idea.path)]: position,
-        };
-        persistLayout(next);
-        return next;
-      });
-      setSelection({ kind: "idea", path: idea.path });
-      setHeldIdeaPath(idea.path);
-      setDraftSticky(null);
-      setMessage(data.message || "Sticky note saved to Research Ideas.");
-    } catch {
-      setMessage("That sticky note could not be saved. It is still open so you can try again.");
-    } finally {
-      setSavingSticky(false);
-    }
-  }
-
-  function finishDraftSticky() {
-    if (savingSticky) return;
-    if (!draftSticky?.text.trim()) {
-      setDraftSticky(null);
-      return;
-    }
-    void saveDraftSticky();
-  }
-
   function startEditingIdea(idea: ResearchIdea) {
-    setContextMenu(null);
     setPendingDeleteIdea(null);
     setSelection({ kind: "idea", path: idea.path });
     setHeldIdeaPath(idea.path);
     setEditingIdea({ path: idea.path, text: idea.body || idea.preview || idea.topic });
+  }
+
+  async function createCanvasSticky(draft: ResearchDeskCanvasStickyDraft) {
+    const body = draft.text.trim();
+    if (!body) return null;
+    const response = await fetch("/api/research/ideas", {
+      body: JSON.stringify({ body }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.idea) throw new Error(data?.message || "Sticky save failed");
+    const idea = data.idea as ResearchIdea;
+    ideasRef.current = [idea, ...ideasRef.current.filter((item) => item.path !== idea.path)];
+    setIdeas(ideasRef.current);
+    setSelection({ kind: "idea", path: idea.path });
+    setHeldIdeaPath(idea.path);
+    setMessage(data.message || "Sticky note saved to Research Ideas.");
+    return idea;
   }
 
   async function patchIdea(idea: ResearchIdea, updates: { body?: string; connectedPaperRefs?: string[] }) {
@@ -1387,18 +566,21 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
   async function attachIdeaToPaper(idea: ResearchIdea, paper: ResearchPaper) {
     if (connectionSavingRef.current.has(idea.path)) {
-      setMessage("Finish the current sticky connection before adding another paper.");
-      return;
+      const message = "Finish the current sticky connection before adding another paper.";
+      setMessage(message);
+      throw new Error(message);
     }
     const ref = paperConnectionRef(paper);
     if (!ref) {
-      setMessage("That paper does not have a stable library reference yet.");
-      return;
+      const message = "That paper does not have a stable library reference yet.";
+      setMessage(message);
+      throw new Error(message);
     }
     const currentIdea = ideasRef.current.find((item) => item.path === idea.path) || idea;
     if ((currentIdea.connectedPaperRefs || []).some((item) => paperMatchesConnectionRef(paper, item))) {
-      setMessage(`This sticky is already attached to ${paper.title}.`);
-      return;
+      const message = `This sticky is already attached to ${paper.title}.`;
+      setMessage(message);
+      throw new Error(message);
     }
     connectionSavingRef.current.add(idea.path);
     setConnectionSavingIdeaPath(idea.path);
@@ -1406,7 +588,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       const result = await patchIdea(currentIdea, { connectedPaperRefs: [...(currentIdea.connectedPaperRefs || []), ref] });
       setMessage(`Sticky attached to ${paper.title}. ${result.idea.connectedPaperRefs.length} connected ${result.idea.connectedPaperRefs.length === 1 ? "paper" : "papers"}.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "That paper connection could not be saved.");
+      const message = error instanceof Error ? error.message : "That paper connection could not be saved.";
+      setMessage(message);
+      throw error instanceof Error ? error : new Error(message);
     } finally {
       connectionSavingRef.current.delete(idea.path);
       setConnectionSavingIdeaPath((current) => current === idea.path ? "" : current);
@@ -1444,13 +628,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       });
       const data = await response.json();
       if (!response.ok || !data?.ok) throw new Error(data?.message || "Sticky deletion failed");
-      setIdeas((current) => current.filter((item) => item.path !== idea.path));
-      setLayout((current) => {
-        const next = { ...current };
-        delete next[ideaDeskKey(idea.path)];
-        persistLayout(next);
-        return next;
-      });
+      const nextIdeas = ideasRef.current.filter((item) => item.path !== idea.path);
+      ideasRef.current = nextIdeas;
+      setIdeas(nextIdeas);
       setSelection((current) => current?.kind === "idea" && current.path === idea.path ? null : current);
       setHeldIdeaPath((current) => current === idea.path ? "" : current);
       setEditingIdea((current) => current?.path === idea.path ? null : current);
@@ -1463,244 +643,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     }
   }
 
-  function organizeDesk(nextMode = sortMode, preservePaperPositions = false) {
-    clearOrganizeTimers();
-    setExpandedStackKeys([]);
-    setArrangementRevision((current) => current + 1);
-    const paperPositions = preservePaperPositions
-      ? Object.fromEntries(Object.entries(layout).filter(([key]) => key.startsWith("paper:"))) as DeskLayout
-      : {};
-    const gathered: DeskLayout = { ...paperPositions };
-    ideas.forEach((idea, index) => {
-      gathered[ideaDeskKey(idea.path)] = { x: 0.5, y: 0.64, rotation: index % 2 ? 2 : -2, z: 1200 + index };
-    });
-    setStackCursors({});
-    setOrganizing("gathering");
-    setLayout(gathered);
-    setMessage("Gathering the papers...");
-
-    organizeTimers.current.push(window.setTimeout(() => {
-      const organized = { ...paperPositions, ...buildIdeaLayout(ideas) };
-      setOrganizing("settling");
-      setLayout(organized);
-      persistLayout(organized);
-      setMessage(`Sorted by ${nextMode === "reading" ? "reading stage" : nextMode === "recent" ? "recently added" : nextMode}.`);
-    }, 360));
-    organizeTimers.current.push(window.setTimeout(() => setOrganizing(""), 1350));
-  }
-
   function changeSort(nextMode: SortMode) {
     setSortMode(nextMode);
-    localStorage.setItem(RESEARCH_DESK_SORT_KEY, nextMode);
-    organizeDesk(nextMode, true);
+    try { localStorage.setItem(RESEARCH_DESK_SORT_KEY, nextMode); } catch { /* local storage is optional */ }
+    setMessage(`Sorted by ${nextMode === "reading" ? "reading stage" : nextMode === "recent" ? "recently added" : nextMode}.`);
   }
-
-  function restackOpenPiles() {
-    if (!expandedStackKeys.length) return;
-    setExpandedStackKeys([]);
-    setArrangementRevision((current) => current + 1);
-    setMessage("Open paper piles restacked.");
-  }
-
-  function bringForward(key: string, fallback?: DeskPosition) {
-    setLayout((current) => {
-      const top = Math.max(0, ...Object.values(current).map((item) => item.z || 0)) + 1;
-      const next = { ...current, [key]: { ...(current[key] || fallback || { x: 0.3, y: 0.3, rotation: 0, z: top }), z: top } };
-      return next;
-    });
-  }
-
-  function nudgeStack(key: string, fallback: DeskPosition, deltaX: number, deltaY: number) {
-    const rect = deskRef.current?.getBoundingClientRect();
-    const xLimit = (rect?.width || 1200) * 0.72;
-    const yLimit = (rect?.height || 760) * 0.72;
-    setLayout((current) => {
-      const base = current[key] || fallback;
-      const top = Math.max(0, ...Object.values(current).map((item) => item.z || 0)) + 1;
-      const next = {
-        ...current,
-        [key]: {
-          ...base,
-          x: clamp(base.x + deltaX, -xLimit, xLimit),
-          y: clamp(base.y + deltaY, -yLimit, yLimit),
-          z: top,
-        },
-      };
-      persistLayout(next);
-      return next;
-    });
-    setMessage("Stack position saved. Use Stack desk to reset the arrangement.");
-  }
-
-  function stackClickWasDrag(key: string) {
-    if (suppressStackClickRef.current !== key) return false;
-    suppressStackClickRef.current = "";
-    return true;
-  }
-
-  function paperClickWasDrag(key: string) {
-    if (suppressPaperClickRef.current !== key) return false;
-    suppressPaperClickRef.current = "";
-    return true;
-  }
-
-  function beginDrag(event: ReactPointerEvent<HTMLElement>, key: string, kind: DragState["kind"] = "idea", fallback?: DeskPosition, paperId?: string) {
-    if (event.button !== 0 || !deskRef.current) return;
-    const position = layout[key] || fallback;
-    if (!position) return;
-    const now = performance.now();
-    dragRef.current = {
-      captureTarget: event.currentTarget,
-      kind,
-      key,
-      moved: false,
-      origin: position,
-      paperId,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      lastAt: now,
-      velocityX: 0,
-      velocityY: 0,
-    };
-    setDraggingKey(key);
-    setDropTargetPaperId("");
-    bringForward(key, position);
-  }
-
-  function paperAtPoint(clientX: number, clientY: number, excludePaperId = "") {
-    for (const element of document.elementsFromPoint(clientX, clientY)) {
-      const paperElement = element.closest<HTMLElement>("[data-research-paper-id]");
-      const id = paperElement?.dataset.researchPaperId;
-      if (!id || id === excludePaperId) continue;
-      const paper = papers.find((item) => item.id === id);
-      if (paper) return paper;
-    }
-    return null;
-  }
-
-  function moveDrag(event: ReactPointerEvent<HTMLElement>) {
-    const drag = dragRef.current;
-    const desk = deskRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !desk) return;
-    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
-    if (!drag.moved && distance < 5) return;
-    if (!drag.moved) {
-      drag.moved = true;
-      try { drag.captureTarget.setPointerCapture(event.pointerId); } catch { /* Drag still works if pointer capture is unavailable. */ }
-    }
-    const targetPaper = drag.kind === "idea" || drag.kind === "paper"
-      ? paperAtPoint(event.clientX, event.clientY, drag.paperId)
-      : null;
-    setDropTargetPaperId((current) => current === (targetPaper?.id || "") ? current : targetPaper?.id || "");
-    const rect = desk.getBoundingClientRect();
-    const now = performance.now();
-    const elapsed = Math.max(8, now - drag.lastAt);
-    drag.velocityX = (event.clientX - drag.lastX) / elapsed;
-    drag.velocityY = (event.clientY - drag.lastY) / elapsed;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-    drag.lastAt = now;
-    const usesPixelOffset = drag.kind === "stack" || drag.kind === "paper";
-    const x = usesPixelOffset
-      ? clamp(drag.origin.x + (event.clientX - drag.startX) / camera.scale, -rect.width * 0.72, rect.width * 0.72)
-      : clamp(drag.origin.x + (event.clientX - drag.startX) / (rect.width * camera.scale), 0.05, 0.94);
-    const y = usesPixelOffset
-      ? clamp(drag.origin.y + (event.clientY - drag.startY) / camera.scale, -rect.height * 0.72, rect.height * 0.72)
-      : clamp(drag.origin.y + (event.clientY - drag.startY) / (rect.height * camera.scale), 0.09, 0.91);
-    setLayout((current) => ({ ...current, [drag.key]: { ...(current[drag.key] || drag.origin), x, y } }));
-  }
-
-  function cancelDeskItemDrag() {
-    if (!dragRef.current) return;
-    dragRef.current = null;
-    setDraggingKey("");
-    setDropTargetPaperId("");
-    setLayout((current) => {
-      persistLayout(current);
-      return current;
-    });
-  }
-
-  function endDrag(event: { clientX: number; clientY: number; pointerId: number }) {
-    const drag = dragRef.current;
-    const desk = deskRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !desk) return;
-    if (drag.kind === "stack" || drag.kind === "paper") {
-      let connectedDrop = false;
-      if (drag.moved) {
-        if (drag.kind === "stack") suppressStackClickRef.current = drag.key;
-        else suppressPaperClickRef.current = drag.key;
-        const sourcePaper = drag.paperId ? papers.find((paper) => paper.id === drag.paperId) || null : null;
-        const dropPaper = drag.kind === "paper" ? paperAtPoint(event.clientX, event.clientY, drag.paperId) : null;
-        connectedDrop = Boolean(sourcePaper && dropPaper);
-        if (sourcePaper && dropPaper) togglePaperConnection(sourcePaper, dropPaper);
-        else setMessage(drag.kind === "paper" ? "Paper position saved on this desk. Drag it onto another paper to connect them." : "Stack position saved. Use Stack desk to reset the arrangement.");
-        window.setTimeout(() => {
-          if (drag.kind === "stack" && suppressStackClickRef.current === drag.key) suppressStackClickRef.current = "";
-          if (drag.kind === "paper" && suppressPaperClickRef.current === drag.key) suppressPaperClickRef.current = "";
-        }, 0);
-      }
-      setLayout((current) => {
-        const next = connectedDrop
-          ? {
-              ...current,
-              [drag.key]: {
-                ...(current[drag.key] || drag.origin),
-                x: drag.origin.x,
-                y: drag.origin.y,
-              },
-            }
-          : current;
-        persistLayout(next);
-        return next;
-      });
-      dragRef.current = null;
-      setDraggingKey("");
-      setDropTargetPaperId("");
-      return;
-    }
-    const rect = desk.getBoundingClientRect();
-    const dropPaper = drag.moved ? paperAtPoint(event.clientX, event.clientY) : null;
-    const idea = ideas.find((item) => ideaDeskKey(item.path) === drag.key) || null;
-    setLayout((current) => {
-      const currentPosition = current[drag.key] || drag.origin;
-      const settleDirection = currentPosition.x > 0.72 ? -1 : 1;
-      const next = {
-        ...current,
-        [drag.key]: {
-          ...currentPosition,
-          x: dropPaper
-            ? clamp(currentPosition.x + settleDirection * 0.055, 0.05, 0.94)
-            : clamp(currentPosition.x + (drag.velocityX * 72) / (rect.width * camera.scale), 0.05, 0.94),
-          y: dropPaper
-            ? clamp(currentPosition.y + 0.035, 0.09, 0.91)
-            : clamp(currentPosition.y + (drag.velocityY * 72) / (rect.height * camera.scale), 0.09, 0.91),
-          rotation: dropPaper ? clamp(currentPosition.rotation * 0.6, -3, 3) : clamp(currentPosition.rotation + drag.velocityX * 0.5, -6, 6),
-        },
-      };
-      persistLayout(next);
-      return next;
-    });
-    dragRef.current = null;
-    setDraggingKey("");
-    setDropTargetPaperId("");
-    if (dropPaper && idea) void attachIdeaToPaper(idea, dropPaper);
-  }
-
-  useEffect(() => {
-    if (!isActive) return undefined;
-    const finishDrag = (event: PointerEvent) => endDrag(event);
-    const cancelDrag = () => cancelDeskItemDrag();
-    window.addEventListener("pointerup", finishDrag, true);
-    window.addEventListener("pointercancel", cancelDrag, true);
-    return () => {
-      window.removeEventListener("pointerup", finishDrag, true);
-      window.removeEventListener("pointercancel", cancelDrag, true);
-    };
-  }, [camera.scale, ideas, isActive, papers]);
 
   async function openVaultPaper(paper: ResearchPaper) {
     if (!paper.path) return;
@@ -1793,7 +740,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       if (!response.ok || !Array.isArray(data?.papers)) throw new Error("Sync failed");
       setPapers(data.papers);
       setSources(data.sources || null);
-      placeIdeas(ideas, true);
       const attempted = Number(data.sync?.metadataAttempted || 0);
       const resolved = Number(data.sync?.metadataResolved || 0);
       const unresolved = Number(data.sync?.metadataUnresolved || 0);
@@ -1824,19 +770,28 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     }
   }
 
-  function selectPaper(paper: ResearchPaper, stack?: PaperStack) {
+  function selectPaper(paper: ResearchPaper) {
     setSelection({ kind: "paper", path: paper.id });
-    if (stack) {
-      const index = stack.papers.findIndex((item) => item.id === paper.id);
-      if (index >= 0) setStackCursors((current) => ({ ...current, [stack.key]: index }));
-    }
   }
 
   function selectIdea(idea: ResearchIdea) {
-    const key = ideaDeskKey(idea.path);
     setSelection({ kind: "idea", path: idea.path });
     setHeldIdeaPath(idea.path);
-    bringForward(key);
+  }
+
+  function handleCanvasSelection(next: ResearchDeskCanvasSelection) {
+    setSelection(next as DeskSelection);
+    if (next?.kind === "idea") setHeldIdeaPath(next.path);
+  }
+
+  function openPaperDetails(paper: ResearchPaper) {
+    selectPaper(paper);
+    setInspectorOpen(true);
+  }
+
+  function openIdeaDetails(idea: ResearchIdea) {
+    selectIdea(idea);
+    setInspectorOpen(true);
   }
 
   return (
@@ -1852,8 +807,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
             <p className="mt-0.5 truncate text-xs text-slate-400">
               {sources
                 ? hasActiveFilter
-                  ? `${visiblePapers.length} matching ${visiblePapers.length === 1 ? "paper" : "papers"} in ${deskStacks.length} visible ${deskStacks.length === 1 ? "stack" : "stacks"}`
-                  : `${sources.mergedCount} papers in ${deskStacks.length} visible stacks`
+                  ? `${visiblePapers.length} matching ${visiblePapers.length === 1 ? "paper" : "papers"} across ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}`
+                  : `${sources.mergedCount} papers in ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}`
                 : "Your papers, reading stages, and connected notes in one place"}
             </p>
           </div>
@@ -1917,463 +872,26 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         </div>
       ) : null}
 
-      <div
-        className={`research-desk-canvas research-desk-${organizing || "resting"} ${camera.scale >= 2.5 ? "research-desk-zoom-detail" : camera.scale >= 1.55 ? "research-desk-zoom-close" : camera.scale >= 0.9 ? "research-desk-zoom-reading" : "research-desk-zoom-overview"} ${cameraDragging ? "research-desk-panning" : ""}`}
-        aria-label="Research desk canvas. Drag stacks or individual papers to arrange them. Drop one paper onto another to connect or disconnect them. Drag the empty desk or use W, A, S, and D to pan. Use the scroll wheel to zoom."
-        onContextMenu={(event) => openDeskContextMenu(event, "canvas")}
-        onDoubleClick={handleDeskDoubleClick}
-        onPointerCancel={(event) => {
-          endCameraDrag(event);
-          cancelDeskItemDrag();
-        }}
-        onPointerDown={beginCameraDrag}
-        onPointerMove={moveCameraDrag}
-        onPointerUp={(event) => {
-          endCameraDrag(event);
-          endDrag(event);
-        }}
-        onWheel={zoomDesk}
-        ref={deskRef}
-        tabIndex={0}
-      >
-        <div className="research-desk-grain" aria-hidden="true" />
-        <div className="research-location-tab research-location-tab-papers">
-          <FileText className="h-3.5 w-3.5" />
-          <span><strong>Papers</strong> · {sources?.mergedCount ?? papers.length} unified · {sources?.vaultCount ?? papers.filter((paper) => paper.path).length} vault notes · {sources?.zoteroCount ?? papers.filter((paper) => paper.zoteroKey).length} Zotero records</span>
-          <small>{visiblePapers.length} shown</small>
-        </div>
-        <div className="research-location-tab research-location-tab-ideas">
-          <Lightbulb className="h-3.5 w-3.5" />
-          <span><strong>Ideas</strong> · sticky notes</span>
-          <small>{visibleIdeas.length}</small>
-        </div>
-        <div className="research-desk-hint">
-          <Compass className="h-3.5 w-3.5" />
-          <span>Double-click a pile to spread it in the desk · drag papers independently · drop paper on paper to connect or disconnect · wheel to reveal detail ({Math.round(camera.scale * 100)}%).</span>
-        </div>
+      <div className="research-desk-canvas research-desk-shell">
+        <ResearchDeskCanvas
+          ariaLabel="Research desk. Pan freely in every direction, zoom from 2 to 800 percent, spread piles in place, move papers, and use link handles to connect them."
+          ideas={ideas}
+          loading={loading}
+          matchingPaperIds={hasActiveFilter ? visiblePapers.map((paper) => paper.id) : undefined}
+          onActionError={(nextMessage) => setMessage(nextMessage)}
+          onAttachIdeaToPaper={attachIdeaToPaper}
+          onConnectPapers={togglePaperConnection}
+          onCreateSticky={createCanvasSticky}
+          onOpenIdeaDetails={openIdeaDetails}
+          onOpenPaperDetails={openPaperDetails}
+          onSelectionChange={handleCanvasSelection}
+          paperConnections={paperConnections}
+          selection={selection}
+          stacks={deskStacks}
+        />
 
-        {loading ? <div className="research-desk-loading">Setting out the research desk...</div> : null}
-        {organizing === "gathering" ? <div className="research-gathering-note"><Layers3 className="h-4 w-4" /> Gathering papers</div> : null}
-
-        {connectionViewport.width && connectionViewport.height && connectionViewport.lines.length ? (
-          <svg
-            aria-hidden="true"
-            className="research-connection-layer"
-            preserveAspectRatio="none"
-            viewBox={`0 0 ${connectionViewport.width} ${connectionViewport.height}`}
-          >
-            {connectionViewport.lines.map((line) => {
-              const bend = Math.max(34, Math.abs(line.x2 - line.x1) * 0.42);
-              const direction = line.x2 >= line.x1 ? 1 : -1;
-              return (
-                <g className={`${line.kind === "paper" ? "is-paper-link" : "is-sticky-link"} ${line.active ? "is-active" : ""}`} key={line.id}>
-                  <path d={`M ${line.x1} ${line.y1} C ${line.x1 + bend * direction} ${line.y1}, ${line.x2 - bend * direction} ${line.y2}, ${line.x2} ${line.y2}`} />
-                  <circle cx={line.x2} cy={line.y2} r="3" />
-                </g>
-              );
-            })}
-          </svg>
-        ) : null}
-
-        <div
-          className="research-desk-world"
-          style={{
-            "--research-camera-x": camera.x + "px",
-            "--research-camera-y": camera.y + "px",
-            "--research-camera-scale": camera.scale,
-          } as CSSProperties}
-        >
-        <div aria-label="Research paper stacks" className="research-stack-grid" role="list">
-          {deskStacks.map((stack, stackIndex) => {
-            const cursor = stackCursor(stack);
-            const paper = stack.papers[cursor];
-            const stackLayoutKey = stackDeskKey(sortMode, stack.key);
-            const stackPosition = layout[stackLayoutKey] || { x: 0, y: 0, rotation: 0, z: 800 + stackIndex };
-            const expanded = stackIsExpanded(stack);
-            const visibleLayers = expanded ? 0 : Math.min(4, Math.max(0, stack.papers.length - 1));
-            const stackKind = sortMode === "author"
-              ? "Author range"
-              : sortMode === "date"
-                ? "Publication range"
-                : sortMode === "reading"
-                  ? "Reading stage"
-                  : "Subject stack";
-            return (
-              <section
-                className={`research-paper-stack ${expanded ? "research-paper-stack-expanded" : ""} ${draggingKey === stackLayoutKey ? "research-paper-stack-dragging" : ""}`}
-                data-research-stack-key={stack.key}
-                key={`${arrangementRevision}:${stack.key}`}
-                onLostPointerCapture={() => {
-                  if (dragRef.current?.key === stackLayoutKey) cancelDeskItemDrag();
-                }}
-                onPointerCancel={() => cancelDeskItemDrag()}
-                onPointerDown={(event) => {
-                  const target = event.target instanceof Element ? event.target : null;
-                  if (target?.closest(".research-stack-cycle-controls, .research-paper-dogear, .research-spread-paper")) return;
-                  beginDrag(event, stackLayoutKey, "stack", stackPosition);
-                }}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                role="listitem"
-                style={{
-                  "--stack-delay": `${Math.min(stackIndex * 24, 240)}ms`,
-                  "--stack-heading-offset-x": `${expanded ? stackPosition.x : 0}px`,
-                  "--stack-heading-offset-y": `${expanded ? stackPosition.y : 0}px`,
-                  "--stack-offset-x": `${expanded ? 0 : stackPosition.x}px`,
-                  "--stack-offset-y": `${expanded ? 0 : stackPosition.y}px`,
-                  zIndex: stackPosition.z,
-                } as CSSProperties}
-              >
-                <button
-                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. ${expanded ? "Press Enter or double-click to restack. Dragging this heading does not move the spread papers." : "Press Enter or double-click to spread every paper on the desk. Drag to arrange the pile."} Use Shift plus arrow keys to move the heading.`}
-                  aria-expanded={expanded}
-                  className="research-paper-stack-heading"
-                  onClick={(event) => {
-                    if (stackClickWasDrag(stackLayoutKey)) return;
-                    if (event.detail === 0) toggleStackExpansion(stack);
-                    else if (event.detail === 1) selectPaper(paper, stack);
-                  }}
-                  onDoubleClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleStackExpansion(stack);
-                  }}
-                  onKeyDown={(event) => {
-                    if (!event.shiftKey) {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        toggleStackExpansion(stack);
-                      }
-                      return;
-                    }
-                    const step = event.altKey ? 8 : 20;
-                    if (event.key === "ArrowLeft") nudgeStack(stackLayoutKey, stackPosition, -step, 0);
-                    else if (event.key === "ArrowRight") nudgeStack(stackLayoutKey, stackPosition, step, 0);
-                    else if (event.key === "ArrowUp") nudgeStack(stackLayoutKey, stackPosition, 0, -step);
-                    else if (event.key === "ArrowDown") nudgeStack(stackLayoutKey, stackPosition, 0, step);
-                    else return;
-                    event.preventDefault();
-                  }}
-                  type="button"
-                >
-                  <span>{stack.label}</span>
-                  <strong>{stack.papers.length} {stack.papers.length === 1 ? "paper" : "papers"}</strong>
-                  <small>{stackKind} · {expanded ? "heading moves independently · double-click to restack" : "drag to arrange · double-click to spread"} · {cursor + 1} of {stack.papers.length}</small>
-                </button>
-
-                <div
-                  aria-label={expanded ? `${stack.label} spread with ${stack.papers.length} visible papers.` : `${stack.label} stack. Use left and right arrow keys to browse. Press Enter to select the front paper.`}
-                  className={`research-paper-stack-cards ${expanded ? "research-paper-stack-spread" : ""}`}
-                  onDoubleClick={(event) => {
-                    if (expanded) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleStackExpansion(stack);
-                  }}
-                  onKeyDown={(event) => {
-                    if (expanded) return;
-                    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-                      event.preventDefault();
-                      cycleStack(stack, -1);
-                    } else if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-                      event.preventDefault();
-                      cycleStack(stack, 1);
-                    } else if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
-                      event.preventDefault();
-                      selectPaper(paper, stack);
-                    }
-                  }}
-                  tabIndex={expanded ? -1 : 0}
-                >
-                  {expanded ? stack.papers.map((spreadPaper, paperIndex) => {
-                    const paperLayoutKey = paperDeskKey(spreadPaper.id);
-                    const paperPosition = layout[paperLayoutKey] || { x: 0, y: 0, rotation: 0, z: 1000 + paperIndex };
-                    return (
-                    <article
-                      aria-label={`${spreadPaper.title}, ${spreadPaper.authorLabel}, ${spreadPaper.year}. Paper ${paperIndex + 1} of ${stack.papers.length} in the open ${stack.label} pile.`}
-                      className={`research-paper-card research-spread-paper ${isFreeResearchPaperPosition(paperPosition) ? "research-paper-free-positioned" : ""} ${draggingKey === paperLayoutKey ? "research-desk-item-dragging" : ""} ${spreadPaper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${spreadPaper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === spreadPaper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === spreadPaper.id ? "research-paper-sticky-target" : ""}`}
-                      data-research-paper-id={spreadPaper.id}
-                      key={spreadPaper.id}
-                      onClick={() => {
-                        if (paperClickWasDrag(paperLayoutKey)) return;
-                        selectPaper(spreadPaper, stack);
-                      }}
-                      onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper: spreadPaper })}
-                      onDoubleClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        selectPaper(spreadPaper, stack);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          selectPaper(spreadPaper, stack);
-                        }
-                      }}
-                      onLostPointerCapture={() => {
-                        if (dragRef.current?.key === paperLayoutKey) cancelDeskItemDrag();
-                      }}
-                      onPointerCancel={() => cancelDeskItemDrag()}
-                      onPointerDown={(event) => {
-                        const target = event.target instanceof Element ? event.target : null;
-                        if (target?.closest(".research-paper-dogear")) return;
-                        event.stopPropagation();
-                        bringForward(stackLayoutKey, stackPosition);
-                        beginDrag(event, paperLayoutKey, "paper", paperPosition, spreadPaper.id);
-                      }}
-                      onPointerMove={moveDrag}
-                      onPointerUp={endDrag}
-                      role="button"
-                      style={{
-                        "--paper-index": paperIndex,
-                        "--subject-hue": subjectHue(spreadPaper.primarySubject),
-                        left: paperPosition.x,
-                        top: paperPosition.y,
-                        zIndex: paperPosition.z,
-                      } as CSSProperties}
-                      tabIndex={0}
-                    >
-                      <button
-                        aria-label={spreadPaper.dogEared ? `Remove dog-ear from ${spreadPaper.title}` : `Dog-ear ${spreadPaper.title}`}
-                        aria-pressed={spreadPaper.dogEared}
-                        className="research-paper-dogear"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void patchPaperState(spreadPaper, { dogEared: !spreadPaper.dogEared });
-                        }}
-                        onDoubleClick={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        title={spreadPaper.dogEared ? "Remove dog-ear" : "Dog-ear this paper"}
-                        type="button"
-                      >
-                        <Bookmark className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="research-paper-kicker" title={spreadPaper.authors.join("; ") || spreadPaper.authorLabel}>{spreadPaper.authorLabel} · {spreadPaper.year || "n.d."}</span>
-                      <strong>{spreadPaper.title}</strong>
-                      <span className="research-paper-title">{spreadPaper.summaryPreview || "No abstract or summary has been saved yet."}</span>
-                      <PaperInlineDetails paper={spreadPaper} />
-                      <span className="research-paper-close-metadata">
-                        <span>{spreadPaper.datePublished || "Date unknown"}</span>
-                        <span>{spreadPaper.doi && spreadPaper.doi !== "unknown" ? `DOI ${spreadPaper.doi}` : sourceLabel(spreadPaper.source)}</span>
-                      </span>
-                      <span className="research-paper-footer">
-                        <span className="research-paper-subject">{spreadPaper.primarySubject}</span>
-                        <span>{READING_STATUS_LABELS[spreadPaper.readingStatus]}</span>
-                      </span>
-                    </article>
-                    );
-                  }) : <>
-                  {Array.from({ length: visibleLayers }, (_, layerIndex) => {
-                    const layer = visibleLayers - layerIndex;
-                    return (
-                      <span
-                        aria-hidden="true"
-                        className="research-paper-layer"
-                        key={layer}
-                        style={{
-                          "--paper-layer": layer,
-                          "--paper-layer-lean": `${layer % 2 ? 0.45 : -0.35}deg`,
-                          "--subject-hue": subjectHue(paper.primarySubject),
-                        } as CSSProperties}
-                      />
-                    );
-                  })}
-
-                  <article
-                    aria-label={`${paper.title}, ${paper.authorLabel}, ${paper.year}. ${cursor + 1} of ${stack.papers.length} in ${stack.label}.`}
-                    className={`research-paper-card research-stack-front-card research-desk-item ${paper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${paper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === paper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === paper.id ? "research-paper-sticky-target" : ""}`}
-                    data-research-paper-id={paper.id}
-                    onClick={() => {
-                      if (stackClickWasDrag(stackLayoutKey)) return;
-                      selectPaper(paper, stack);
-                    }}
-                    onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper })}
-                    onDoubleClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      toggleStackExpansion(stack);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        selectPaper(paper, stack);
-                      }
-                    }}
-                    role="button"
-                    style={{ "--desk-rotation": "0deg", "--subject-hue": subjectHue(paper.primarySubject) } as CSSProperties}
-                    tabIndex={0}
-                  >
-                    <button
-                      aria-label={paper.dogEared ? `Remove dog-ear from ${paper.title}` : `Dog-ear ${paper.title}`}
-                      aria-pressed={paper.dogEared}
-                      className="research-paper-dogear"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void patchPaperState(paper, { dogEared: !paper.dogEared });
-                      }}
-                      onDoubleClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      title={paper.dogEared ? "Remove dog-ear" : "Dog-ear this paper"}
-                      type="button"
-                    >
-                      <Bookmark className="h-3.5 w-3.5" />
-                    </button>
-                    <span className="research-paper-kicker">{paper.authorLabel} · {paper.year || "n.d."}</span>
-                    <strong>{paper.title}</strong>
-                    <span className="research-paper-title">{paper.summaryPreview || "No abstract or summary has been saved yet."}</span>
-                    <PaperInlineDetails paper={paper} />
-                    <span className="research-paper-close-metadata">
-                      <span>{paper.datePublished || "Date unknown"}</span>
-                      <span>{paper.doi && paper.doi !== "unknown" ? `DOI ${paper.doi}` : sourceLabel(paper.source)}</span>
-                    </span>
-                    <span className="research-paper-footer">
-                      <span className="research-paper-subject">{paper.primarySubject}</span>
-                      <span>{READING_STATUS_LABELS[paper.readingStatus]}</span>
-                    </span>
-                  </article>
-
-                  {stack.papers.length > 1 ? (
-                    <div aria-label={`${stack.label} stack controls`} className="research-stack-cycle-controls">
-                      <button aria-label={`Previous paper in ${stack.label}`} onClick={() => cycleStack(stack, -1)} type="button"><ChevronLeft className="h-3.5 w-3.5" /></button>
-                      <button aria-label={`Next paper in ${stack.label}`} onClick={() => cycleStack(stack, 1)} type="button"><ChevronRight className="h-3.5 w-3.5" /></button>
-                    </div>
-                  ) : null}
-                  <span className="research-stack-position">{cursor + 1} / {stack.papers.length}</span>
-                  </>}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-
-        {visibleIdeas.map((idea, index) => {
-          const key = ideaDeskKey(idea.path);
-          const connectedPapers = connectedPapersForIdea(idea, papers);
-          const position = layout[key] || { x: 0.55, y: 0.78, rotation: index % 2 ? 2 : -2, z: 1400 + index };
-          const style = {
-            "--desk-delay": `${Math.min(index * 16, 250)}ms`,
-            "--desk-x": `${position.x * 100}%`,
-            "--desk-y": `${position.y * 100}%`,
-            "--desk-rotation": `${position.rotation}deg`,
-            zIndex: position.z,
-          } as CSSProperties;
-          if (editingIdea?.path === idea.path) {
-            return (
-              <form
-                aria-label={`Edit sticky note ${idea.topic}`}
-                className="research-sticky-note research-sticky-editor research-desk-item research-desk-item-selected"
-                data-research-idea-path={idea.path}
-                key={idea.path}
-                onDoubleClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveIdeaChanges(idea);
-                }}
-                style={style}
-              >
-                <div className="research-sticky-editor-title"><PenLine className="h-3.5 w-3.5" /> Edit sticky</div>
-                <textarea
-                  aria-label="Sticky note text"
-                  autoFocus
-                  disabled={savingIdea}
-                  onChange={(event) => setEditingIdea({ path: idea.path, text: event.target.value })}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                      event.preventDefault();
-                      void saveIdeaChanges(idea);
-                    }
-                  }}
-                  value={editingIdea.text}
-                />
-                <div className="research-sticky-editor-actions">
-                  <button disabled={savingIdea} onClick={() => setEditingIdea(null)} type="button">Cancel</button>
-                  <button disabled={savingIdea || !editingIdea.text.trim()} type="submit">{savingIdea ? "Saving..." : "Save"}</button>
-                </div>
-              </form>
-            );
-          }
-          return (
-            <button
-              aria-label={`Research idea ${idea.topic}. ${connectedPapers.length ? `Attached to ${connectedPapers.length} ${connectedPapers.length === 1 ? "paper" : "papers"}.` : "Not attached to a paper."} Double-click to edit.`}
-              className={`research-sticky-note research-desk-item ${connectedPapers.length ? "research-sticky-note-connected" : ""} ${heldIdeaPath === idea.path ? "research-sticky-note-held" : ""} ${selection?.kind === "idea" && selection.path === idea.path ? "research-desk-item-selected" : ""} ${draggingKey === key ? "research-desk-item-dragging research-sticky-attaching" : ""}`}
-              data-research-idea-path={idea.path}
-              key={idea.path}
-              onClick={() => selectIdea(idea)}
-              onContextMenu={(event) => openDeskContextMenu(event, "idea", { idea })}
-              onDoubleClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                startEditingIdea(idea);
-              }}
-              onLostPointerCapture={() => {
-                if (dragRef.current?.key === key) cancelDeskItemDrag();
-              }}
-              onPointerCancel={() => cancelDeskItemDrag()}
-              onPointerDown={(event) => {
-                setSelection({ kind: "idea", path: idea.path });
-                setHeldIdeaPath(idea.path);
-                beginDrag(event, key);
-              }}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              style={style}
-              type="button"
-            >
-              <Lightbulb className="h-4 w-4" />
-              <strong>{idea.topic}</strong>
-              <span>{idea.preview || "Loose question - no detail yet."}</span>
-              <span className="research-sticky-connection-count">
-                <Link2 className="h-3 w-3" /> {connectedPapers.length ? `${connectedPapers.length} ${connectedPapers.length === 1 ? "paper" : "papers"}` : draggingKey === key ? "Drop on a paper" : "Drag onto a paper"}
-              </span>
-            </button>
-          );
-        })}
-
-        {draftSticky ? (
-          <div
-            className="research-draft-sticky"
-            onPointerDown={(event) => event.stopPropagation()}
-            style={{
-              "--desk-x": draftSticky.x * 100 + "%",
-              "--desk-y": draftSticky.y * 100 + "%",
-            } as CSSProperties}
-          >
-            <div className="research-draft-sticky-title"><StickyNote className="h-3.5 w-3.5" /> New research sticky</div>
-            <textarea
-              aria-label="New research sticky note"
-              disabled={savingSticky}
-              onBlur={finishDraftSticky}
-              onChange={(event) => setDraftSticky((current) => current ? { ...current, text: event.target.value } : current)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setDraftSticky(null);
-                }
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault();
-                  void saveDraftSticky();
-                }
-              }}
-              placeholder="A question, observation, or loose connection..."
-              ref={draftStickyRef}
-              value={draftSticky.text}
-            />
-            <small>{savingSticky ? "Saving..." : "Click away to save · empty notes disappear"}</small>
-          </div>
-        ) : null}
-        </div>
-
-        {!loading && !visiblePapers.length ? (
-          <div className={`research-desk-empty ${visibleIdeas.length ? "research-desk-empty-with-stickies" : ""}`}>
-            <Search className="h-6 w-6" />
-            <strong>{hasActiveFilter ? "No matching papers" : "No papers on the desk yet"}</strong>
-            <span>{hasActiveFilter ? "Try a broader search or clear the active filters. Sticky notes remain available." : "Sync Zotero or add a research paper to begin."}</span>
-            {hasActiveFilter ? <button onClick={() => showAllPapers()} type="button">Show all papers</button> : null}
-          </div>
-        ) : null}
-
-        <aside className={`research-reading-sheet ${selectedIdea ? "research-reading-sheet-idea" : ""}`} ref={readingSheetRef}>
+        {inspectorOpen ? <aside className={`research-reading-sheet research-reading-sheet-overlay ${selectedIdea ? "research-reading-sheet-idea" : ""}`} ref={readingSheetRef}>
+          <button aria-label="Close research details" className="research-reading-sheet-close" onClick={() => setInspectorOpen(false)} type="button"><X className="h-4 w-4" /></button>
           {selectedPaper ? (
             <>
               <div className="research-reading-sheet-topline">
@@ -2453,7 +971,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                   <button
                     className="research-attach-held-sticky"
                     disabled={heldIdeaAttachedToSelectedPaper || heldIdeaConnectionSaving}
-                    onClick={() => void attachIdeaToPaper(heldIdea, selectedPaper)}
+                    onClick={() => void attachIdeaToPaper(heldIdea, selectedPaper).catch(() => undefined)}
                     title={heldIdeaConnectionSaving ? `Saving ${heldIdea.topic}` : heldIdeaAttachedToSelectedPaper ? `${heldIdea.topic} is already attached to this paper` : `Attach ${heldIdea.topic} to this paper`}
                     type="button"
                   >
@@ -2521,7 +1039,37 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           ) : (
             <div className="research-reading-empty"><Layers3 className="h-8 w-8" /><p>Choose a paper or sticky note to place it on the reading stand.</p></div>
           )}
-        </aside>
+        </aside> : null}
+
+        {editingIdea && selectedIdea?.path === editingIdea.path ? (
+          <form
+            aria-label={`Edit sticky note ${selectedIdea.topic}`}
+            className="research-sticky-editor research-sticky-editor-overlay"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveIdeaChanges(selectedIdea);
+            }}
+          >
+            <div className="research-sticky-editor-title"><PenLine className="h-3.5 w-3.5" /> Edit sticky</div>
+            <textarea
+              aria-label="Sticky note text"
+              autoFocus
+              disabled={savingIdea}
+              onChange={(event) => setEditingIdea({ path: selectedIdea.path, text: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  void saveIdeaChanges(selectedIdea);
+                }
+              }}
+              value={editingIdea.text}
+            />
+            <div className="research-sticky-editor-actions">
+              <button disabled={savingIdea} onClick={() => setEditingIdea(null)} type="button">Cancel</button>
+              <button disabled={savingIdea || !editingIdea.text.trim()} type="submit">{savingIdea ? "Saving..." : "Save"}</button>
+            </div>
+          </form>
+        ) : null}
 
         {subjectManagerOpen ? (
           <section aria-label="Research subjects" className="research-subject-manager" onPointerDown={(event) => event.stopPropagation()}>
@@ -2626,44 +1174,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           </section>
         ) : null}
 
-        {contextMenu ? (
-          <div
-            aria-label="Research desk controls"
-            className="research-desk-context-menu"
-            role="menu"
-            style={{ left: contextMenu.menuX, top: contextMenu.menuY }}
-          >
-            {contextMenu.kind === "canvas" ? (
-              <>
-                <button onClick={() => startDraftSticky(contextMenu.point)} role="menuitem" type="button"><Plus className="h-3.5 w-3.5" /> New sticky</button>
-                <button onClick={() => { setContextMenu(null); organizeDesk(); }} role="menuitem" type="button"><Layers3 className="h-3.5 w-3.5" /> Stack desk</button>
-                <button onClick={toggleMetadataFocus} role="menuitem" type="button"><AlertCircle className="h-3.5 w-3.5" /> {metadataFocus ? "Show all papers" : "Show missing details"}</button>
-                <button onClick={() => { setCamera({ scale: 1, x: 0, y: 0 }); setContextMenu(null); setMessage("Desk view reset."); }} role="menuitem" type="button"><Compass className="h-3.5 w-3.5" /> Reset desk view</button>
-              </>
-            ) : null}
-            {contextMenu.kind === "paper" && contextMenu.paper ? (
-              <>
-                <button onClick={() => { setContextMenu(null); void patchPaperState(contextMenu.paper!, { dogEared: !contextMenu.paper!.dogEared }); }} role="menuitem" type="button"><Bookmark className="h-3.5 w-3.5" /> {contextMenu.paper.dogEared ? "Remove dog-ear" : "Dog-ear paper"}</button>
-                <button onClick={() => { setContextMenu(null); void patchPaperState(contextMenu.paper!, { readingStatus: "read" }); }} role="menuitem" type="button"><BookOpen className="h-3.5 w-3.5" /> Mark as read</button>
-                <button onClick={() => { setContextMenu(null); addConnectedNote(contextMenu.paper); }} role="menuitem" type="button"><Link2 className="h-3.5 w-3.5" /> Connected note</button>
-                {paperConnectionCount(contextMenu.paper) ? (
-                  <button onClick={() => { removePaperConnections(contextMenu.paper!); setContextMenu(null); }} role="menuitem" type="button"><Network className="h-3.5 w-3.5" /> Remove paper links ({paperConnectionCount(contextMenu.paper)})</button>
-                ) : null}
-                {contextMenu.paper.path ? <button onClick={() => { setContextMenu(null); void openVaultPaper(contextMenu.paper!); }} role="menuitem" type="button"><ExternalLink className="h-3.5 w-3.5" /> Open in Obsidian</button> : null}
-                {contextMenu.paper.zoteroUrl ? <button onClick={() => { setContextMenu(null); openZoteroPaper(contextMenu.paper!); }} role="menuitem" type="button"><ExternalLink className="h-3.5 w-3.5" /> Open in Zotero</button> : null}
-              </>
-            ) : null}
-            {contextMenu.kind === "idea" && contextMenu.idea ? (
-              <>
-                <button onClick={() => startEditingIdea(contextMenu.idea!)} role="menuitem" type="button"><PenLine className="h-3.5 w-3.5" /> Edit sticky</button>
-                <button onClick={() => startDraftSticky(contextMenu.point)} role="menuitem" type="button"><Plus className="h-3.5 w-3.5" /> New sticky here</button>
-                <button onClick={() => { setContextMenu(null); onOpenWorkbench("Continue this research idea, connected to [[" + contextMenu.idea!.path.replace(/\.md$/i, "") + "]]:\n\n" + contextMenu.idea!.topic + "\n\n"); }} role="menuitem" type="button"><PenLine className="h-3.5 w-3.5" /> Continue in Workbench</button>
-                <button className="is-danger" onClick={() => { setPendingDeleteIdea(contextMenu.idea!); setContextMenu(null); }} role="menuitem" type="button"><Trash2 className="h-3.5 w-3.5" /> Delete sticky...</button>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-
         <div className="research-desk-status">
           <MapPin className="h-3.5 w-3.5" />
           <span>{papers.length} {papers.length === 1 ? "paper" : "papers"} · {ideas.length} {ideas.length === 1 ? "idea" : "ideas"}</span>
@@ -2708,24 +1218,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       <div className="research-desk-toolbar">
         <div aria-label="Research view controls" className="research-toolbar-group">
           <span className="research-toolbar-group-label">View</span>
-          {expandedStackKeys.length ? (
-            <button className="is-active" onClick={restackOpenPiles} type="button">
-              <Layers3 className="h-3.5 w-3.5" /> Restack open ({expandedStackKeys.length})
-            </button>
-          ) : null}
-          {deskStackPlan.some((group) => !group.expanded) ? (
-            <button onClick={spreadAllPiles} title="Spread every visible pile into one ordered desk grid" type="button">
-              <FileText className="h-3.5 w-3.5" /> Spread all
-            </button>
-          ) : null}
           <button onClick={() => showAllPapers()} title="Clear every filter and show the complete library" type="button">
             <Layers3 className="h-3.5 w-3.5" /> Show all
-          </button>
-          <button onClick={() => fitDesk()} title="Fit the visible piles inside the desk" type="button">
-            <Compass className="h-3.5 w-3.5" /> Fit desk
-          </button>
-          <button onClick={() => organizeDesk()} title="Gather and restack the visible library" type="button">
-            <RotateCcw className="h-3.5 w-3.5" /> Stack desk
           </button>
           <button
             aria-expanded={subjectManagerOpen}
@@ -2742,9 +1236,6 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
         <div aria-label="Research creation tools" className="research-toolbar-group">
           <span className="research-toolbar-group-label">Create</span>
-          <button onClick={() => startDraftSticky({ x: 0.42, y: 0.55 })} title="Add a quick research sticky note" type="button">
-            <StickyNote className="h-3.5 w-3.5" /> Sticky note
-          </button>
           <button className="is-primary" onClick={() => addConnectedNote(selectedPaper)} type="button">
             <PenLine className="h-3.5 w-3.5" /> Rough note
           </button>

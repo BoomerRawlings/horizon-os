@@ -185,7 +185,9 @@ export function App() {
     (focusNavigationPreference === "collapsed" ||
       (focusNavigationPreference === "auto" && focusTimer.isRunning && focusTimer.mode === "focus"));
   const navigationCollapsed = focusNavigationCollapsed || developmentSandboxCanvasMode;
-  const immersiveWorkspace = workspaceScreen === "focus" || developmentSandboxCanvasMode;
+  const immersiveWorkspace = workspaceScreen === "focus"
+    || workspaceScreen === "research"
+    || workspaceScreen === "development-sandbox";
   const calendarPriorityCount = useMemo(
     () => upcomingPriorityItems(calendar.items, calendar.today, 3).length,
     [calendar.items, calendar.today],
