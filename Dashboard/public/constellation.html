@@ -14,7 +14,7 @@
     }
 
     * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none; }
     body {
       background: #020711;
       color: #e7f3ff;
@@ -111,7 +111,8 @@
       position: relative;
       min-width: 0;
       min-height: 0;
-      overflow: hidden;
+      overflow: clip;
+      overscroll-behavior: none;
       cursor: grab;
       touch-action: none;
       background:
@@ -363,6 +364,7 @@
       width: min(304px, calc(100% - 32px));
       max-height: calc(100% - 32px);
       overflow-y: auto;
+      overscroll-behavior: contain;
       border: 1px solid rgba(125, 211, 252, 0.18);
       border-radius: 18px;
       background: rgba(5, 15, 27, 0.94);
@@ -598,6 +600,9 @@
       const SCENE = { width: 6400, height: 4200, centerX: 3200, centerY: 2100 };
       const SYSTEM_RINGS = [720, 1260, 1810];
       const RING_CAPACITY = [4, 7, 10];
+      const OUTER_RING_CAPACITY_STEP = 3;
+      const OUTER_RING_SPACING = 550;
+      const MIN_ZOOM = 0.025;
       const MOON_RADII = [250, 290, 330, 370];
       const HUES = [190, 258, 154, 34, 216, 326, 182, 278, 48, 204];
 
@@ -796,16 +801,47 @@
         return /^(retired|frozen-archive)$/i.test(String(status || "").trim());
       }
 
+      function projectRingCapacity(ringIndex) {
+        if (ringIndex < RING_CAPACITY.length) return RING_CAPACITY[ringIndex];
+        return RING_CAPACITY[RING_CAPACITY.length - 1]
+          + (ringIndex - RING_CAPACITY.length + 1) * OUTER_RING_CAPACITY_STEP;
+      }
+
+      function projectRingRadius(ringIndex) {
+        if (ringIndex < SYSTEM_RINGS.length) return SYSTEM_RINGS[ringIndex];
+        return SYSTEM_RINGS[SYSTEM_RINGS.length - 1]
+          + (ringIndex - SYSTEM_RINGS.length + 1) * OUTER_RING_SPACING;
+      }
+
+      function activeProjectRingRadii() {
+        const highestRing = nodes.reduce(
+          (highest, node) => node.kind === "project" ? Math.max(highest, Number(node.orbitRing || 0)) : highest,
+          SYSTEM_RINGS.length - 1,
+        );
+        return Array.from({ length: highestRing + 1 }, (_, ringIndex) => projectRingRadius(ringIndex));
+      }
+
+      function activeSceneBounds(inset = 90) {
+        const outerRadius = activeProjectRingRadii().at(-1) || SYSTEM_RINGS[0];
+        return {
+          maxX: Math.max(SCENE.width - inset, SCENE.centerX + outerRadius + inset),
+          maxY: Math.max(SCENE.height - inset, SCENE.centerY + outerRadius + inset),
+          minX: Math.min(inset, SCENE.centerX - outerRadius - inset),
+          minY: Math.min(inset, SCENE.centerY - outerRadius - inset),
+        };
+      }
+
       function orbitalProjectPosition(index) {
         let ringIndex = 0;
-        let slot = index;
-        while (ringIndex < RING_CAPACITY.length - 1 && slot >= RING_CAPACITY[ringIndex]) {
-          slot -= RING_CAPACITY[ringIndex];
+        let slot = Math.max(0, index);
+        let capacity = projectRingCapacity(ringIndex);
+        while (slot >= capacity) {
+          slot -= capacity;
           ringIndex += 1;
+          capacity = projectRingCapacity(ringIndex);
         }
-        const capacity = RING_CAPACITY[ringIndex];
         const angle = -Math.PI / 2 + (slot / capacity) * Math.PI * 2 + ringIndex * 0.16;
-        const radius = SYSTEM_RINGS[ringIndex];
+        const radius = projectRingRadius(ringIndex);
         return {
           angle,
           ringIndex,
@@ -915,7 +951,7 @@
       }
 
       function renderOrbits() {
-        const globalRings = SYSTEM_RINGS.map((radius) =>
+        const globalRings = activeProjectRingRadii().map((radius) =>
           `<circle class="system-orbit" cx="${SCENE.centerX}" cy="${SCENE.centerY}" r="${radius}" />`).join("");
         const moonRings = nodes
           .filter((node) => node.projectId)
@@ -1057,9 +1093,10 @@
           const dx = node.x - centerX;
           const dy = node.y - centerY;
           const distance = Math.max(1, Math.hypot(dx, dy));
+          const projectRings = activeProjectRingRadii();
           const targetRadius = parent
             ? Math.max(210, Math.min(430, node.orbitRadius || distance))
-            : SYSTEM_RINGS.reduce((best, radius) => Math.abs(radius - distance) < Math.abs(best - distance) ? radius : best, SYSTEM_RINGS[0]);
+            : projectRings.reduce((best, radius) => Math.abs(radius - distance) < Math.abs(best - distance) ? radius : best, projectRings[0]);
           const spring = (targetRadius - distance) * (parent ? 0.012 : 0.006);
           vx += (dx / distance) * spring;
           vy += (dy / distance) * spring;
@@ -1079,8 +1116,9 @@
 
           vx *= 0.9;
           vy *= 0.9;
-          node.x = Math.max(90, Math.min(SCENE.width - 90, node.x + vx));
-          node.y = Math.max(90, Math.min(SCENE.height - 90, node.y + vy));
+          const bounds = activeSceneBounds();
+          node.x = Math.max(bounds.minX, Math.min(bounds.maxX, node.x + vx));
+          node.y = Math.max(bounds.minY, Math.min(bounds.maxY, node.y + vy));
           element.style.left = `${node.x}px`;
           element.style.top = `${node.y}px`;
           renderOrbits();
@@ -1112,8 +1150,9 @@
           const dx = (moveEvent.clientX - start.clientX) / viewport.scale;
           const dy = (moveEvent.clientY - start.clientY) / viewport.scale;
           if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
-          node.x = Math.max(80, Math.min(SCENE.width - 80, start.x + dx));
-          node.y = Math.max(60, Math.min(SCENE.height - 60, start.y + dy));
+          const bounds = activeSceneBounds(80);
+          node.x = Math.max(bounds.minX, Math.min(bounds.maxX, start.x + dx));
+          node.y = Math.max(bounds.minY, Math.min(bounds.maxY, start.y + dy));
           const now = performance.now();
           const elapsed = Math.max(8, now - previousMove.time);
           velocity = {
@@ -1403,7 +1442,7 @@
       }
 
       function zoomAt(nextScale, localX, localY) {
-        const scale = Math.max(0.06, Math.min(6.5, nextScale));
+        const scale = Math.max(MIN_ZOOM, Math.min(6.5, nextScale));
         const worldX = (localX - viewport.x) / viewport.scale;
         const worldY = (localY - viewport.y) / viewport.scale;
         viewport.x = localX - worldX * scale;
@@ -1414,15 +1453,22 @@
       }
 
       function fitAll(animate = true) {
-        if (!nodes.length) return;
         const rect = viewportEl.getBoundingClientRect();
+        if (!nodes.length) {
+          viewport.scale = 0.18;
+          viewport.x = rect.width / 2 - SCENE.centerX * viewport.scale;
+          viewport.y = rect.height / 2 - SCENE.centerY * viewport.scale;
+          applyTransform();
+          saveState();
+          return;
+        }
         const minX = Math.min(...nodes.map((node) => node.x - nodeSize(node).width / 2));
         const maxX = Math.max(...nodes.map((node) => node.x + nodeSize(node).width / 2));
         const minY = Math.min(...nodes.map((node) => node.y - nodeSize(node).height / 2));
         const maxY = Math.max(...nodes.map((node) => node.y + nodeSize(node).height / 2));
         const contentWidth = maxX - minX + 180;
         const contentHeight = maxY - minY + 160;
-        const scale = Math.max(0.06, Math.min(0.58, Math.min(rect.width / contentWidth, rect.height / contentHeight)));
+        const scale = Math.max(MIN_ZOOM, Math.min(0.58, Math.min(rect.width / contentWidth, rect.height / contentHeight)));
         if (animate) worldEl.style.transition = "transform 520ms cubic-bezier(.22,1,.36,1)";
         viewport.scale = scale;
         viewport.x = rect.width / 2 - ((minX + maxX) / 2) * scale;
@@ -1484,7 +1530,6 @@
         if (!response.ok) throw new Error("Projects unavailable");
         const data = await response.json();
         allProjects = Array.isArray(data.projects) ? data.projects : [];
-        if (!allProjects.length) throw new Error("No projects returned");
         renderProjectSet(options);
         return projects;
       }
@@ -1553,6 +1598,8 @@
       });
 
       viewportEl.addEventListener("wheel", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest(".inspector")) return;
         event.preventDefault();
         const rect = viewportEl.getBoundingClientRect();
         const factor = Math.exp(-event.deltaY * 0.0012);
@@ -1607,11 +1654,16 @@
       document.getElementById("new-node-button").onclick = openNewNodeDialog;
       document.getElementById("cancel-node").onclick = () => newNodeDialog.close();
       document.getElementById("new-node-form").addEventListener("submit", (event) => { event.preventDefault(); createNodeFromForm(); });
-      window.addEventListener("resize", () => { if (nodes.length) fitAll(false); });
+      window.addEventListener("resize", () => fitAll(false));
 
       loadProjects({ fit: true, restoreViewport: false })
         .then(() => {
-          showToast(`${projects.length} projects mapped · registry notes connected`, 3200);
+          const localNodeCount = nodes.filter((node) => node.custom).length;
+          showToast(projects.length
+            ? `${projects.length} projects mapped · registry notes connected`
+            : localNodeCount
+              ? `${localNodeCount} local node${localNodeCount === 1 ? "" : "s"} restored`
+              : "Constellation ready · create a node or add a project to the registry", 3200);
         })
         .catch(() => {
           emptyStateEl.hidden = false;

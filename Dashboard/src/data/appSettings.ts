@@ -21,7 +21,7 @@ export type AppSettings = {
   };
   privacy: {
     localFirst: boolean;
-    codexCanParseCaptures: boolean;
+    openAiCanParseCaptures: boolean;
     shareDiagnostics: boolean;
   };
   appearance: {
@@ -60,7 +60,7 @@ export const defaultAppSettings: AppSettings = {
   },
   privacy: {
     localFirst: true,
-    codexCanParseCaptures: true,
+    openAiCanParseCaptures: false,
     shareDiagnostics: false,
   },
   appearance: {

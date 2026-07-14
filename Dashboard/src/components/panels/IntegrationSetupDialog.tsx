@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Check, Database, ExternalLink, FolderOpen, KeyRound, Plug, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Check, Database, ExternalLink, FolderOpen, KeyRound, LogOut, Plug, RefreshCw, ShieldCheck, Sparkles, X } from "lucide-react";
 import { dockItems } from "../../data/dockItems";
 import { integrationIconSrcFor } from "../../data/integrationIcons";
 import type { IntegrationConnection } from "../../types";
@@ -19,6 +19,7 @@ type SetupDraft = {
   vaultPath: string;
   zoteroApiKey: string;
   zoteroUserId: string;
+  zoteroUsername: string;
 };
 
 type SaveResult = {
@@ -35,6 +36,7 @@ type IntegrationSetupDialogProps = {
 
 type BackendSettings = Partial<SetupDraft> & {
   credentialPath?: string;
+  googleOAuthAvailable?: boolean;
   oauthTokens?: {
     accessTokenSaved?: boolean;
     expiryDate?: number;
@@ -46,6 +48,13 @@ type BackendSettings = Partial<SetupDraft> & {
   workspacePath?: string;
   zoteroApiKeySaved?: boolean;
   zoteroApiKeyTail?: string;
+  zoteroLocal?: {
+    enabled?: boolean;
+    lastCheckedAt?: string;
+    lastMessage?: string;
+    state?: string;
+    verifiedAt?: string | null;
+  };
 };
 
 type AiModelOption = {
@@ -58,10 +67,27 @@ type AiModelOption = {
 
 const fallbackVaultPath = "your Horizon vault";
 const defaultAiModel = "gpt-5.4-mini";
+const officialSetupLinks = {
+  codexAppGuide: "https://learn.chatgpt.com/docs/windows/windows-app",
+  codexWindowsDownload: "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi",
+  googleConnections: "https://myaccount.google.com/connections",
+  googleDrive: "https://drive.google.com",
+  microsoft365: "https://www.microsoft365.com/",
+  microsoftOneDrive: "https://onedrive.live.com/",
+  microsoftOutlook: "https://outlook.office.com/",
+  obsidianDownload: "https://obsidian.md/download",
+  obsidianSyncSetup: "https://help.obsidian.md/sync/setup",
+  openAiBilling: "https://platform.openai.com/settings/organization/billing/overview",
+  openAiKeys: "https://platform.openai.com/api-keys",
+  openAiKeyPermissions: "https://help.openai.com/en/articles/8867743-assign-api-key-permissions",
+  openAiKeySafety: "https://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety",
+  zoteroKeys: "https://www.zotero.org/settings/keys",
+  zoteroNewKey: "https://www.zotero.org/settings/keys/new",
+  zoteroDownload: "https://www.zotero.org/download/",
+};
 const defaultAiModelOptions: AiModelOption[] = [
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini", source: "recommended" },
   { id: "gpt-5.4", label: "GPT-5.4", source: "default" },
-  { id: "gpt-5.5-mini", label: "GPT-5.5 mini", source: "default" },
   { id: "gpt-5.5", label: "GPT-5.5", source: "default" },
   { id: "gpt-5-mini", label: "GPT-5 mini", source: "default" },
   { id: "gpt-5", label: "GPT-5", source: "default" },
@@ -110,7 +136,7 @@ function initialDraft(connection: IntegrationConnection, accountEmail: string): 
     provider: connection.id === "ai-agent" ? "OpenAI" : "",
     scopes:
       connection.id === "google-drive"
-        ? "calendar, drive.metadata.readonly"
+        ? "drive.metadata.readonly"
         : connection.id === "microsoft"
           ? "Calendars.ReadWrite, Files.ReadWrite"
           : "",
@@ -120,6 +146,7 @@ function initialDraft(connection: IntegrationConnection, accountEmail: string): 
     vaultPath: connection.id === "obsidian" ? connection.detailLabel?.replace(/^Ready: |^Needs initialization: /, "") ?? fallbackVaultPath : "",
     zoteroApiKey: "",
     zoteroUserId: "",
+    zoteroUsername: "",
   };
 }
 
@@ -152,6 +179,7 @@ function settingsFromDraft(connectionId: string, draft: SetupDraft) {
     return {
       zoteroApiKey: draft.zoteroApiKey.trim(),
       zoteroUserId: draft.zoteroUserId.trim(),
+      zoteroUsername: draft.zoteroUsername.trim(),
     };
   }
   return {
@@ -232,17 +260,45 @@ function SelectField({
   );
 }
 
-function Instructions({ connectionId }: { connectionId: string }) {
+function OfficialLink({ children, href }: { children: ReactNode; href: string }) {
+  return (
+    <a
+      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.1)] px-3 py-2 text-xs font-medium text-sky-100 transition hover:border-[rgba(var(--accent-rgb),0.5)] hover:bg-[rgba(var(--accent-rgb),0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--accent-rgb),0.6)]"
+      href={href}
+      rel="noreferrer"
+      target="_blank"
+    >
+      {children}
+      <ExternalLink className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
+function SetupStep({ children, number }: { children: ReactNode; number: number }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-white/12 bg-white/[0.05] text-[10px] font-semibold text-slate-200">
+        {number}
+      </span>
+      <span className="pt-0.5">{children}</span>
+    </li>
+  );
+}
+
+function Instructions({ connectionId, googleLoginAvailable }: { connectionId: string; googleLoginAvailable: boolean }) {
   if (connectionId === "obsidian") {
     return (
       <>
-        <div className="font-medium text-slate-200">How to connect Obsidian</div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Enter the folder path for the vault Horizon should use.</li>
-          <li>Validate the vault path before writing anything.</li>
-          <li>Initialize Horizon structure only when you want indexes and manifests created.</li>
-          <li>Rebuild indexes after larger note moves or imports.</li>
+        <div className="font-medium text-slate-200">Use a different workspace or Obsidian vault</div>
+        <ol className="mt-3 grid gap-2.5">
+          <SetupStep number={1}>If the folder uses Obsidian Sync, let Sync finish first. Obsidian is otherwise optional.</SetupStep>
+          <SetupStep number={2}>Choose <strong className="text-slate-200">Choose different workspace</strong>, then select the top-level folder containing your notes.</SetupStep>
+          <SetupStep number={3}>Horizon checks the folder, offers to add only missing starter files when needed, and restarts with it. Existing notes are never replaced.</SetupStep>
         </ol>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OfficialLink href={officialSetupLinks.obsidianDownload}>Download Obsidian</OfficialLink>
+          <OfficialLink href={officialSetupLinks.obsidianSyncSetup}>Obsidian Sync instructions</OfficialLink>
+        </div>
       </>
     );
   }
@@ -250,29 +306,60 @@ function Instructions({ connectionId }: { connectionId: string }) {
   if (connectionId === "zotero") {
     return (
       <>
-        <div className="font-medium text-slate-200">How to connect Zotero</div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Use Zotero's API settings page to find your numeric User ID.</li>
-          <li>Create or copy a Zotero API key with library read access.</li>
-          <li>Paste the User ID and key here, save, then test the connection.</li>
-          <li>Horizon stores the key locally for the desktop bridge and never shows it after save.</li>
+        <div className="flex items-center gap-2 font-medium text-slate-200"><Sparkles className="h-4 w-4 text-amber-200" /> No key needed for Zotero Desktop</div>
+        <ol className="mt-3 grid gap-2.5">
+          <SetupStep number={1}>Install and open Zotero Desktop. Wait until the library window is visible.</SetupStep>
+          <SetupStep number={2}>Choose <strong className="text-slate-200">Connect Zotero Desktop</strong>. Horizon reads the official local, read-only library API without an API key.</SetupStep>
+          <SetupStep number={3}>If Zotero blocks it, open <strong className="text-slate-200">Edit &gt; Settings &gt; Advanced</strong>, enable <strong className="text-slate-200">Allow other applications on this computer to communicate with Zotero</strong>, then retry.</SetupStep>
         </ol>
-        <div className="mt-2 text-amber-100/85">TODO: verify these setup steps against Zotero's current official docs before enabling automatic sync.</div>
+        <p className="mt-3 text-slate-500">This fills Research Desk while Zotero is running. A cloud key is optional and is needed only for cloud reads while Zotero is closed or explicitly approved Add to Zotero writes.</p>
+        <p className="mt-2 text-slate-500">For the optional key, name it <strong className="text-slate-300">Horizon</strong>. Under <strong className="text-slate-300">Personal Library</strong>, enable <strong className="text-slate-300">Allow library access</strong>. Enable <strong className="text-slate-300">Allow write access</strong> only if you want approved Add to Zotero actions.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OfficialLink href={officialSetupLinks.zoteroDownload}>Download Zotero</OfficialLink>
+          <OfficialLink href={officialSetupLinks.zoteroNewKey}>Optional cloud key</OfficialLink>
+          <OfficialLink href={officialSetupLinks.zoteroKeys}>Manage or revoke keys</OfficialLink>
+        </div>
+        <p className="mt-3 border-t border-white/8 pt-3 text-slate-500">A true browser-only “Connect Zotero” flow is possible after Horizon's publisher OAuth registration. Individual users will not be asked to register an app.</p>
       </>
     );
   }
 
-  if (connectionId === "microsoft" || connectionId === "google-drive") {
-    const service = connectionId === "microsoft" ? "Microsoft" : "Google";
+  if (connectionId === "google-drive") {
     return (
       <>
-        <div className="font-medium text-slate-200">How to connect {service}</div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Enter the account email you want Horizon to label this connector with.</li>
-          <li>Add the OAuth client details created for Horizon OS.</li>
-          <li>{connectionId === "google-drive" ? "Use Connect Google to approve access in your browser." : "Save the configuration, then use Test to confirm the local config exists."}</li>
-          <li>{connectionId === "google-drive" ? "Horizon stores tokens locally and mirrors only redacted status into Obsidian." : "Live sign-in and token refresh still need the next desktop bridge pass."}</li>
+        <div className="font-medium text-slate-200">Connect Google Drive</div>
+        {googleLoginAvailable ? (
+          <ol className="mt-3 grid gap-2.5">
+            <SetupStep number={1}>Choose <strong className="text-slate-200">Connect Google</strong>. Horizon opens Google's real sign-in page in your browser.</SetupStep>
+            <SetupStep number={2}>Choose the Google account and approve Drive access. Never type your Google password into Horizon.</SetupStep>
+            <SetupStep number={3}>Return to Horizon. It detects approval automatically and keeps this PC connected until you disconnect or Google revokes access.</SetupStep>
+          </ol>
+        ) : (
+          <p className="mt-2 text-amber-100/85">This copy is missing Horizon's publisher Google sign-in configuration. You did not miss a step, and you should not create a Google Cloud developer app. Google Drive still opens normally in your browser.</p>
+        )}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OfficialLink href={officialSetupLinks.googleDrive}>Open Google Drive</OfficialLink>
+          <OfficialLink href={officialSetupLinks.googleConnections}>Review Google connections</OfficialLink>
+        </div>
+      </>
+    );
+  }
+
+  if (connectionId === "microsoft") {
+    return (
+      <>
+        <div className="font-medium text-slate-200">Use Microsoft apps</div>
+        <ol className="mt-3 grid gap-2.5">
+          <SetupStep number={1}>Choose Outlook or OneDrive above. Horizon opens the installed app when available and otherwise opens Microsoft's official web version.</SetupStep>
+          <SetupStep number={2}>Sign in on Microsoft's page. Your app or browser keeps that session; Horizon never sees your password.</SetupStep>
+          <SetupStep number={3}>Use the Microsoft dock menu to reopen Word, Excel, PowerPoint, Outlook, OneNote, or OneDrive.</SetupStep>
         </ol>
+        <p className="mt-3 text-amber-100/85">This is a launcher, not Microsoft account syncing. Calendar and file data do not appear inside Horizon yet.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OfficialLink href={officialSetupLinks.microsoft365}>Open Microsoft 365</OfficialLink>
+          <OfficialLink href={officialSetupLinks.microsoftOutlook}>Outlook on the web</OfficialLink>
+          <OfficialLink href={officialSetupLinks.microsoftOneDrive}>OneDrive on the web</OfficialLink>
+        </div>
       </>
     );
   }
@@ -280,11 +367,11 @@ function Instructions({ connectionId }: { connectionId: string }) {
   if (connectionId === "research") {
     return (
       <>
-        <div className="font-medium text-slate-200">How to connect Research</div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Choose a local folder that stores PDFs, notes, or research exports.</li>
-          <li>Use the separate Zotero card for Zotero credentials.</li>
-          <li>Future research indexing will write compact metadata into Obsidian manifests.</li>
+        <div className="font-medium text-slate-200">Research is already local</div>
+        <ol className="mt-3 grid gap-2.5">
+          <SetupStep number={1}>Horizon reads paper notes from this workspace's <strong className="text-slate-200">Research Papers</strong> folder. No account or API key is required.</SetupStep>
+          <SetupStep number={2}>Use <strong className="text-slate-200">Research</strong> in the sidebar to browse papers and ideas.</SetupStep>
+          <SetupStep number={3}>Connect Zotero separately only if you want Zotero library metadata or approved Add to Zotero actions.</SetupStep>
         </ol>
       </>
     );
@@ -293,24 +380,35 @@ function Instructions({ connectionId }: { connectionId: string }) {
   if (connectionId === "codex") {
     return (
       <>
-        <div className="font-medium text-slate-200">How to connect Codex</div>
-        <ol className="mt-2 list-decimal space-y-1 pl-4">
-          <li>Point Horizon at the workspace folder Codex should understand.</li>
-          <li>Save and test that the folder is reachable.</li>
-          <li>Capture-to-Codex routing will use this workspace in a later workflow pass.</li>
+        <div className="font-medium text-slate-200">Open Codex from Horizon</div>
+        <ol className="mt-3 grid gap-2.5">
+          <SetupStep number={1}>Install the Codex desktop app and sign in there with your OpenAI account.</SetupStep>
+          <SetupStep number={2}>Choose <strong className="text-slate-200">Open Codex</strong>. Horizon focuses it if it is already running.</SetupStep>
+          <SetupStep number={3}>Open this Horizon vault as the workspace inside Codex. Horizon does not share passwords, sessions, or API keys with Codex.</SetupStep>
         </ol>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <OfficialLink href={officialSetupLinks.codexWindowsDownload}>Install Codex for Windows</OfficialLink>
+          <OfficialLink href={officialSetupLinks.codexAppGuide}>Codex app instructions</OfficialLink>
+        </div>
       </>
     );
   }
 
   return (
     <>
-      <div className="font-medium text-slate-200">How to connect AI Agent</div>
-      <ol className="mt-2 list-decimal space-y-1 pl-4">
-        <li>Choose OpenAI and the model Horizon should use for Capture triage.</li>
-        <li>Paste an API key only if you want the local desktop bridge to remember it.</li>
-        <li>Use Refresh models to ask OpenAI which model IDs this saved key can access.</li>
+      <div className="flex items-center gap-2 font-medium text-slate-200"><Sparkles className="h-4 w-4 text-sky-200" /> Connect OpenAI in three steps</div>
+      <ol className="mt-3 grid gap-2.5">
+        <SetupStep number={1}>Open the API Keys page. If this is your first API use, also add API billing.</SetupStep>
+        <SetupStep number={2}>Name it <strong className="text-slate-200">Horizon</strong> and leave Permissions set to <strong className="text-slate-200">All</strong> for the simplest setup. A Restricted key must allow model listing and Responses requests.</SetupStep>
+        <SetupStep number={3}>Copy the key, paste it above, and choose <strong className="text-slate-200">Connect OpenAI</strong>. Horizon loads visible text models and sends only <strong className="text-slate-200">Reply OK.</strong> as a tiny Responses test (up to 16 output tokens) so it cannot falsely claim Capture access works.</SetupStep>
       </ol>
+      <p className="mt-3 text-amber-100/85">ChatGPT subscriptions and OpenAI API billing are separate. OpenAI's public API currently uses API credentials rather than a third-party “Sign in with ChatGPT” button.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <OfficialLink href={officialSetupLinks.openAiKeys}>Create OpenAI key</OfficialLink>
+        <OfficialLink href={officialSetupLinks.openAiBilling}>Set up API billing</OfficialLink>
+        <OfficialLink href={officialSetupLinks.openAiKeyPermissions}>Key permissions</OfficialLink>
+        <OfficialLink href={officialSetupLinks.openAiKeySafety}>Key safety</OfficialLink>
+      </div>
     </>
   );
 }
@@ -330,6 +428,7 @@ function mergeBackendSettings(draft: SetupDraft, settings: BackendSettings): Set
     vaultPath: settings.vaultPath ?? draft.vaultPath,
     zoteroApiKey: "",
     zoteroUserId: settings.zoteroUserId ?? draft.zoteroUserId,
+    zoteroUsername: settings.zoteroUsername ?? draft.zoteroUsername,
   };
 }
 
@@ -338,7 +437,13 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [authorizing, setAuthorizing] = useState(false);
+  const [connectingZoteroDesktop, setConnectingZoteroDesktop] = useState(false);
+  const [googleLoginAvailable, setGoogleLoginAvailable] = useState(false);
+  const [googleTokensSaved, setGoogleTokensSaved] = useState(false);
+  const [zoteroDesktopConnected, setZoteroDesktopConnected] = useState(false);
+  const [launchingActionId, setLaunchingActionId] = useState<string | null>(null);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [message, setMessage] = useState("Loading saved settings...");
   const [secretHint, setSecretHint] = useState("");
@@ -357,6 +462,9 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
     setMessage("Loading saved settings...");
     setSecretHint("");
     setSecretPlaceholder("");
+    setGoogleLoginAvailable(false);
+    setGoogleTokensSaved(false);
+    setZoteroDesktopConnected(false);
 
     async function loadSettings() {
       try {
@@ -376,6 +484,9 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
             setSecretHint(savedSecretHelper(data.settings.tokenOrKeyTail));
             setSecretPlaceholder(savedSecretPlaceholder(data.settings.tokenOrKeyTail));
           }
+          setGoogleLoginAvailable(Boolean(data.settings.googleOAuthAvailable || data.settings.clientId));
+          setGoogleTokensSaved(Boolean(data.settings.oauthTokens?.accessTokenSaved || data.settings.oauthTokens?.refreshTokenSaved));
+          setZoteroDesktopConnected(Boolean(data.settings.zoteroLocal?.enabled && data.settings.zoteroLocal?.verifiedAt));
         }
         if (data.connection) onSave({ connection: data.connection, message: `${data.connection.label} settings loaded.` });
         setMessage("Saved settings loaded.");
@@ -423,6 +534,11 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
         setSecretHint(savedSecretHelper(data.settings.tokenOrKeyTail));
         setSecretPlaceholder(savedSecretPlaceholder(data.settings.tokenOrKeyTail));
       }
+      if (data.settings) {
+        setGoogleLoginAvailable(Boolean(data.settings.googleOAuthAvailable || data.settings.clientId));
+        setGoogleTokensSaved(Boolean(data.settings.oauthTokens?.accessTokenSaved || data.settings.oauthTokens?.refreshTokenSaved));
+        setZoteroDesktopConnected(Boolean(data.settings.zoteroLocal?.enabled && data.settings.zoteroLocal?.verifiedAt));
+      }
       onSave({ connection: data.connection, message: data.message ?? `${data.connection.label} settings saved.` });
       if (!quiet) setMessage(data.message ?? "Settings saved.");
       return true;
@@ -445,13 +561,96 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
         headers: { "content-type": "application/json" },
         method: "POST",
       });
-      const data = (await response.json()) as { connection?: IntegrationConnection; message?: string };
+      const data = (await response.json()) as { connection?: IntegrationConnection; message?: string; ok?: boolean; settings?: BackendSettings };
+      if (data.settings) {
+        setDraftState((current) => mergeBackendSettings(current, data.settings ?? {}));
+        if (data.settings.zoteroApiKeySaved) {
+          setSecretHint(savedSecretHelper(data.settings.zoteroApiKeyTail));
+          setSecretPlaceholder(savedSecretPlaceholder(data.settings.zoteroApiKeyTail));
+        }
+        if (data.settings.tokenOrKeySaved) {
+          setSecretHint(savedSecretHelper(data.settings.tokenOrKeyTail));
+          setSecretPlaceholder(savedSecretPlaceholder(data.settings.tokenOrKeyTail));
+        }
+        setGoogleLoginAvailable(Boolean(data.settings.googleOAuthAvailable || data.settings.clientId));
+        setGoogleTokensSaved(Boolean(data.settings.oauthTokens?.accessTokenSaved || data.settings.oauthTokens?.refreshTokenSaved));
+        setZoteroDesktopConnected(Boolean(data.settings.zoteroLocal?.enabled && data.settings.zoteroLocal?.verifiedAt));
+      }
       if (data.connection) onSave({ connection: data.connection, message: data.message ?? "Connection test finished." });
       setMessage(data.message ?? (response.ok ? "Connection test passed." : "Connection test failed."));
     } catch {
       setMessage("Connection test could not run from this session.");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function disconnectCurrentIntegration() {
+    setDisconnecting(true);
+    setMessage(`Disconnecting ${connection.label} on this PC...`);
+    try {
+      const response = await fetch(`/api/integrations/${encodeURIComponent(connection.id)}/disconnect`, {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const data = (await response.json()) as { connection?: IntegrationConnection; message?: string; settings?: BackendSettings };
+      if (!response.ok || !data.connection) throw new Error(data.message || "Disconnect failed.");
+      setSecretHint("");
+      setSecretPlaceholder("");
+      setGoogleTokensSaved(false);
+      setZoteroDesktopConnected(false);
+      setDraftState((current) => mergeBackendSettings({
+        ...current,
+        tokenOrKey: "",
+        zoteroApiKey: "",
+        zoteroUserId: "",
+        zoteroUsername: "",
+      }, data.settings ?? {}));
+      onSave({ connection: data.connection, message: data.message ?? `${connection.label} disconnected.` });
+      setMessage(data.message ?? `${connection.label} disconnected on this PC.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${connection.label} could not be disconnected.`);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  async function connectZoteroDesktop() {
+    setConnectingZoteroDesktop(true);
+    setMessage("Looking for the open Zotero Desktop app...");
+    try {
+      const response = await fetch("/api/integrations/zotero/local/connect", {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const data = (await response.json()) as { connection?: IntegrationConnection; message?: string; settings?: BackendSettings };
+      if (data.settings) setZoteroDesktopConnected(Boolean(data.settings.zoteroLocal?.enabled && data.settings.zoteroLocal?.verifiedAt));
+      if (data.connection) onSave({ connection: data.connection, message: data.message ?? "Zotero Desktop check finished." });
+      setMessage(data.message ?? (response.ok ? "Zotero Desktop connected." : "Zotero Desktop could not be connected."));
+    } catch {
+      setMessage("Horizon could not check Zotero Desktop. Make sure Zotero is open, then try again.");
+    } finally {
+      setConnectingZoteroDesktop(false);
+    }
+  }
+
+  async function runLaunchAction(actionId: string, label: string) {
+    setLaunchingActionId(actionId);
+    setMessage(`Opening ${label}...`);
+    try {
+      const response = await fetch("/api/launch", {
+        body: JSON.stringify({ actionId }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      const data = (await response.json()) as { message?: string };
+      setMessage(data.message ?? (response.ok ? `Opening ${label}...` : `${label} could not be opened.`));
+    } catch {
+      setMessage(`${label} could not be opened from this session.`);
+    } finally {
+      setLaunchingActionId(null);
     }
   }
 
@@ -462,7 +661,7 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
       return;
     }
     setRefreshingModels(true);
-    setMessage("Refreshing available OpenAI models...");
+    setMessage("Checking OpenAI models and Capture access...");
     try {
       const response = await fetch("/api/integrations/ai-agent/models", {
         body: JSON.stringify({ settings: settingsFromDraft("ai-agent", draft) }),
@@ -492,7 +691,12 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
       const response = await fetch(`/api/integrations/${encodeURIComponent(connection.id)}/settings`, { cache: "no-store" });
       const data = (await response.json()) as { connection?: IntegrationConnection; settings?: BackendSettings };
       if (!response.ok) throw new Error("Settings could not be refreshed.");
-      if (data.settings) setDraftState((current) => mergeBackendSettings(current, data.settings ?? {}));
+      if (data.settings) {
+        setDraftState((current) => mergeBackendSettings(current, data.settings ?? {}));
+        setGoogleLoginAvailable(Boolean(data.settings.googleOAuthAvailable || data.settings.clientId));
+        setGoogleTokensSaved(Boolean(data.settings.oauthTokens?.accessTokenSaved || data.settings.oauthTokens?.refreshTokenSaved));
+        setZoteroDesktopConnected(Boolean(data.settings.zoteroLocal?.enabled && data.settings.zoteroLocal?.verifiedAt));
+      }
       if (data.connection) onSave({ connection: data.connection, message: statusMessage ?? `${data.connection.label} settings refreshed.` });
       return data.connection ?? null;
     } catch {
@@ -553,7 +757,7 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
           ? "Initializing Horizon structure..."
           : action === "rebuild-indexes"
             ? "Rebuilding indexes..."
-            : "Opening vault folder...";
+            : "Opening workspace folder...";
     setMessage(label);
     try {
       const response = await fetch(`/api/integrations/obsidian/${action}`, {
@@ -577,19 +781,19 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
       return;
     }
     setTesting(true);
-    setMessage("Choose the top-level folder created by Obsidian Sync...");
+    setMessage("Choose the top-level Horizon workspace or Obsidian vault folder...");
     try {
       const result = await window.horizonDesktop.chooseVault();
       if (result.canceled) {
-        setMessage("Vault selection canceled. The current vault is unchanged.");
+        setMessage("Workspace selection canceled. The current workspace is unchanged.");
       } else if (result.restarting) {
         setMessage(`Connected ${result.vaultPath}. Horizon is restarting...`);
       } else {
         setDraft({ vaultPath: result.vaultPath });
-        setMessage("This vault is already active on this machine.");
+        setMessage("This workspace is already active on this machine.");
       }
     } catch {
-      setMessage("Horizon could not open the vault picker.");
+      setMessage("Horizon could not open the workspace picker.");
     } finally {
       setTesting(false);
     }
@@ -602,42 +806,54 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
           <Field
             disabled
             helper="Stored only on this machine. Changing it restarts Horizon so every workspace moves together."
-            label="Active vault"
+            label="Active workspace"
             onChange={() => undefined}
             placeholder={fallbackVaultPath}
             value={draft.vaultPath}
           />
-          <div className="grid grid-cols-2 gap-2">
-            <ActionButton disabled={loading || saving || testing} icon={<FolderOpen className="h-4 w-4" />} label="Choose Different Vault" onClick={() => void chooseObsidianVault()} />
-            <ActionButton disabled={loading || saving || testing} icon={<ShieldCheck className="h-4 w-4" />} label="Validate Vault" onClick={() => void runObsidianAction("validate")} />
-            <ActionButton disabled={loading || saving || testing} icon={<Database className="h-4 w-4" />} label="Initialize Structure" onClick={() => void runObsidianAction("initialize")} />
-            <ActionButton disabled={loading || saving || testing} icon={<RefreshCw className="h-4 w-4" />} label="Rebuild Indexes" onClick={() => void runObsidianAction("rebuild-indexes")} />
-            <ActionButton disabled={loading || saving || testing} icon={<FolderOpen className="h-4 w-4" />} label="Open Folder" onClick={() => void runObsidianAction("open")} />
-          </div>
+          <ActionButton disabled={loading || saving || testing} icon={<FolderOpen className="h-4 w-4" />} label="Choose different workspace" onClick={() => void chooseObsidianVault()} />
+          <details className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs text-slate-400">
+            <summary className="cursor-pointer py-1 font-medium text-slate-300">Maintenance and troubleshooting</summary>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <ActionButton disabled={loading || saving || testing} icon={<ShieldCheck className="h-4 w-4" />} label="Validate Vault" onClick={() => void runObsidianAction("validate")} />
+              <ActionButton disabled={loading || saving || testing} icon={<Database className="h-4 w-4" />} label="Initialize Structure" onClick={() => void runObsidianAction("initialize")} />
+              <ActionButton disabled={loading || saving || testing} icon={<RefreshCw className="h-4 w-4" />} label="Rebuild Indexes" onClick={() => void runObsidianAction("rebuild-indexes")} />
+              <ActionButton disabled={loading || saving || testing} icon={<FolderOpen className="h-4 w-4" />} label="Open Folder" onClick={() => void runObsidianAction("open")} />
+            </div>
+          </details>
         </div>
       );
     }
 
     if (connection.id === "codex") {
       return (
-        <Field
-          autoFocus
-          disabled={loading || saving}
-          label="Workspace path"
-          onChange={(bridgePath) => setDraft({ bridgePath })}
-          placeholder={fallbackVaultPath}
-          value={draft.bridgePath}
-        />
+        <div className="grid gap-3">
+          <ActionButton
+            disabled={loading || launchingActionId === "codex.open"}
+            icon={<ExternalLink className="h-4 w-4" />}
+            label={launchingActionId === "codex.open" ? "Opening Codex..." : "Open Codex"}
+            onClick={() => void runLaunchAction("codex.open", "Codex")}
+          />
+          <details className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs text-slate-400">
+            <summary className="cursor-pointer py-1 font-medium text-slate-300">Advanced workspace label</summary>
+            <div className="mt-3">
+              <Field disabled={loading || saving} label="Workspace path" onChange={(bridgePath) => setDraft({ bridgePath })} placeholder={fallbackVaultPath} value={draft.bridgePath} />
+            </div>
+          </details>
+        </div>
       );
     }
 
     if (connection.id === "microsoft") {
       return (
         <div className="grid gap-3">
-          <Field autoFocus disabled={loading || saving} label="Account email" onChange={(accountEmail) => setDraft({ accountEmail })} value={draft.accountEmail} />
-          <Field disabled={loading || saving} label="Tenant ID" onChange={(tenantId) => setDraft({ tenantId })} placeholder="common or tenant GUID" value={draft.tenantId} />
-          <Field disabled={loading || saving} label="OAuth client ID" onChange={(clientId) => setDraft({ clientId })} value={draft.clientId} />
-          <Field disabled={loading || saving} label="Scopes" onChange={(scopes) => setDraft({ scopes })} value={draft.scopes} />
+          <div className="rounded-xl border border-amber-300/18 bg-amber-300/[0.055] px-3 py-3 text-xs leading-relaxed text-amber-100/90">
+            Microsoft is a launcher in this build. Horizon can open the installed apps or their official web versions, but it does not sync Microsoft account data yet.
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton disabled={loading || launchingActionId === "microsoft.outlook"} icon={<ExternalLink className="h-4 w-4" />} label="Open Outlook" onClick={() => void runLaunchAction("microsoft.outlook", "Outlook")} />
+            <ActionButton disabled={loading || launchingActionId === "microsoft.onedrive"} icon={<FolderOpen className="h-4 w-4" />} label="Open OneDrive" onClick={() => void runLaunchAction("microsoft.onedrive", "OneDrive")} />
+          </div>
         </div>
       );
     }
@@ -645,89 +861,148 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
     if (connection.id === "google-drive") {
       return (
         <div className="grid gap-3">
-          <Field autoFocus disabled={loading || saving} label="Google account" onChange={(accountEmail) => setDraft({ accountEmail })} value={draft.accountEmail} />
-          <Field disabled={loading || saving} label="OAuth client ID" onChange={(clientId) => setDraft({ clientId })} value={draft.clientId} />
-          <Field disabled={loading || saving} label="Scopes" onChange={(scopes) => setDraft({ scopes })} value={draft.scopes} />
+          <div className={`rounded-xl border px-3 py-3 text-xs leading-relaxed ${connection.status === "connected" ? "border-emerald-300/18 bg-emerald-300/[0.05] text-emerald-100/90" : "border-amber-300/18 bg-amber-300/[0.055] text-amber-100/90"}`}>
+            {connection.status === "connected"
+              ? `Connected${connection.accountLabel ? ` as ${connection.accountLabel}` : ""}. Horizon keeps a refreshable Google sign-in on this PC.`
+              : googleLoginAvailable
+                ? "Google browser sign-in is ready. Horizon never asks for or stores your Google password."
+                : "Google sign-in is not included in this copy. You did not miss a setup step, and regular users should not create a Google Cloud app."}
+          </div>
           <ActionButton
-            disabled={loading || saving || testing || authorizing}
+            disabled={loading || saving || testing || authorizing || !googleLoginAvailable}
             icon={<ExternalLink className="h-4 w-4" />}
-            label={authorizing ? "Waiting for Google..." : "Connect Google"}
+            label={authorizing ? "Waiting for Google..." : connection.status === "connected" || connection.status === "needs_reauth" ? "Reconnect Google" : googleLoginAvailable ? "Connect Google" : "Google sign-in unavailable"}
             onClick={() => void runGoogleOAuth()}
           />
+          <ActionButton disabled={loading || launchingActionId === "google.drive"} icon={<ExternalLink className="h-4 w-4" />} label="Open Google Drive" onClick={() => void runLaunchAction("google.drive", "Google Drive")} />
         </div>
       );
     }
 
     if (connection.id === "research") {
-      return <Field autoFocus disabled={loading || saving} label="Research folder" onChange={(sourcePath) => setDraft({ sourcePath })} value={draft.sourcePath} />;
+      return (
+        <div className="grid gap-3">
+          <div className="rounded-xl border border-emerald-300/18 bg-emerald-300/[0.05] px-3 py-3 text-xs leading-relaxed text-emerald-100/90">
+            Ready. Research uses this workspace's Research Papers folder; no separate account or setup is required.
+          </div>
+          <ActionButton disabled={loading || launchingActionId === "research.notes"} icon={<FolderOpen className="h-4 w-4" />} label="Open Research Folder" onClick={() => void runLaunchAction("research.notes", "Research folder")} />
+        </div>
+      );
     }
 
     if (connection.id === "zotero") {
       return (
         <div className="grid gap-3">
-          <Field autoFocus disabled={loading || saving} label="Zotero User ID" onChange={(zoteroUserId) => setDraft({ zoteroUserId })} value={draft.zoteroUserId} />
-          <Field
-            disabled={loading || saving}
-            helper={secretHint || "The key is hidden after save. Leave blank to keep a saved key."}
-            label="Zotero API key"
-            onChange={(zoteroApiKey) => setDraft({ zoteroApiKey })}
-            placeholder={secretPlaceholder || undefined}
-            type="password"
-            value={draft.zoteroApiKey}
+          <div className={`rounded-xl border px-3 py-3 text-xs leading-relaxed ${zoteroDesktopConnected ? "border-emerald-300/18 bg-emerald-300/[0.05] text-emerald-100/90" : "border-white/8 bg-white/[0.025] text-slate-300"}`}>
+            {zoteroDesktopConnected
+              ? "Zotero Desktop is connected for local, read-only library access. Keep Zotero open when refreshing Research Desk."
+              : "Fastest setup: open Zotero Desktop, then connect it here. No User ID or API key is required."}
+          </div>
+          <ActionButton
+            disabled={loading || saving || testing || connectingZoteroDesktop}
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label={connectingZoteroDesktop ? "Looking for Zotero..." : zoteroDesktopConnected ? "Check Zotero Desktop Again" : "Connect Zotero Desktop"}
+            onClick={() => void connectZoteroDesktop()}
           />
+          {draft.zoteroUsername || draft.zoteroUserId ? (
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-300/18 bg-emerald-300/[0.05] px-3 py-3">
+              <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-200" />
+              <span>
+                <span className="block text-xs font-medium text-emerald-100">Detected Zotero account</span>
+                <span className="mt-0.5 block text-xs text-slate-400">{draft.zoteroUsername || `User ${draft.zoteroUserId}`}</span>
+              </span>
+            </div>
+          ) : null}
+          <details className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs text-slate-400" open={Boolean(secretHint)}>
+            <summary className="cursor-pointer py-1 font-medium text-slate-300">Optional cloud and write access</summary>
+            <div className="mt-3">
+              <Field
+                disabled={loading || saving || testing}
+                helper={secretHint || "Optional: paste a dedicated Horizon key with Personal Library access. Write access is needed only for approved Add to Zotero actions. Horizon detects the User ID for you."}
+                label="Optional Zotero cloud key"
+                onChange={(zoteroApiKey) => setDraft({ zoteroApiKey })}
+                placeholder={secretPlaceholder || undefined}
+                type="password"
+                value={draft.zoteroApiKey}
+              />
+            </div>
+          </details>
         </div>
       );
     }
 
     return (
       <div className="grid gap-3">
-        <SelectField
-          disabled={loading || saving || refreshingModels}
-          label="Provider"
-          onChange={(provider) => setDraft({ provider })}
-          options={[{ label: "OpenAI", value: "OpenAI" }]}
-          value={draft.provider || "OpenAI"}
-        />
-        <SelectField
-          disabled={loading || saving || refreshingModels}
-          helper="Refresh uses the saved API key and only returns model IDs, never the key."
-          label="Model"
-          onChange={(model) => setDraft({ model })}
-          options={mergeCurrentAiModel(aiModelOptions, draft.model).map((option) => ({
-            label: aiModelOptionLabel(option),
-            value: option.id,
-          }))}
-          value={draft.model || defaultAiModel}
-        />
-        <ActionButton
-          disabled={loading || saving || testing || refreshingModels}
-          icon={<RefreshCw className={`h-4 w-4 ${refreshingModels ? "animate-spin" : ""}`} />}
-          label={refreshingModels ? "Refreshing models..." : "Refresh models"}
-          onClick={() => void refreshAiModels()}
-        />
         <Field
-          disabled={loading || saving}
-          helper={secretHint || "The key is hidden after save. Leave blank to keep a saved key."}
-          label="API key"
+          autoFocus
+          disabled={loading || saving || refreshingModels}
+          helper={secretHint || "Create a separate key for Horizon. It is masked after save, stored in Horizon app data on this PC, and can be revoked from OpenAI anytime."}
+          label="OpenAI API key"
           onChange={(tokenOrKey) => setDraft({ tokenOrKey })}
           placeholder={secretPlaceholder || undefined}
           type="password"
           value={draft.tokenOrKey}
         />
+        <details className="rounded-xl border border-white/8 bg-white/[0.025] px-3 py-2 text-xs text-slate-400">
+          <summary className="cursor-pointer py-1 font-medium text-slate-300">Advanced model choice</summary>
+          <div className="mt-3 grid gap-3">
+            <SelectField
+              disabled={loading || saving || refreshingModels}
+              helper="Connect OpenAI refreshes this list and keeps your selected supported model."
+              label="Model"
+              onChange={(model) => setDraft({ model })}
+              options={mergeCurrentAiModel(aiModelOptions, draft.model).map((option) => ({
+                label: aiModelOptionLabel(option),
+                value: option.id,
+              }))}
+              value={draft.model || defaultAiModel}
+            />
+          </div>
+        </details>
       </div>
     );
-  }, [aiModelOptions, authorizing, connection.id, draft, loading, refreshingModels, saving, secretHint, secretPlaceholder, testing]);
+  }, [aiModelOptions, authorizing, connectingZoteroDesktop, connection.accountLabel, connection.id, connection.status, draft, googleLoginAvailable, launchingActionId, loading, refreshingModels, saving, secretHint, secretPlaceholder, testing, zoteroDesktopConnected]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (connection.id === "zotero") {
+      void handleTest();
+      return;
+    }
+    if (connection.id === "ai-agent") {
+      void refreshAiModels();
+      return;
+    }
     void persistSettings(false);
   }
 
+  const isSecretConnection = connection.id === "zotero" || connection.id === "ai-agent";
+  const isBusy = loading || saving || testing || authorizing || refreshingModels || disconnecting || connectingZoteroDesktop || Boolean(launchingActionId);
+  const canDisconnect = (connection.id === "zotero" && (Boolean(secretHint) || zoteroDesktopConnected))
+    || (connection.id === "ai-agent" && Boolean(secretHint))
+    || (connection.id === "google-drive" && googleTokensSaved);
+  const showTest = connection.id === "codex" || connection.id === "google-drive";
+  const showSubmit = connection.id === "ai-agent" || connection.id === "codex" || (connection.id === "zotero" && Boolean(draft.zoteroApiKey.trim() || secretHint));
+  const connectLabel = connection.id === "zotero"
+    ? testing ? "Checking cloud key..." : "Connect optional cloud key"
+    : connection.id === "ai-agent"
+      ? refreshingModels ? "Connecting OpenAI..." : "Connect OpenAI"
+      : saving ? "Saving..." : "Save workspace";
+
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/35 px-6">
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/35 px-4 py-5 sm:px-6">
       <form
-        className="w-full max-w-xl rounded-2xl border border-[rgba(var(--accent-rgb),0.28)] bg-slate-950/92 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl"
+        aria-labelledby="integration-setup-title"
+        aria-modal="true"
+        className="max-h-[calc(100dvh-2.5rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-[rgba(var(--accent-rgb),0.28)] bg-slate-950/92 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl [scrollbar-gutter:stable]"
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!isBusy) onClose();
+        }}
         onSubmit={handleSubmit}
+        role="dialog"
       >
         <div className="mb-5 flex items-start gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-white/[0.04]">
@@ -737,7 +1012,7 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <Plug className="h-4 w-4 text-[rgb(var(--accent-rgb))]" />
-              <h3 className="text-base font-semibold text-white">{connection.label} Setup</h3>
+              <h3 className="text-base font-semibold text-white" id="integration-setup-title">{connection.label} Setup</h3>
               <CapabilityBadge connection={connection} />
             </div>
             <p className="mt-1 text-sm leading-relaxed text-slate-400">{connection.permissionSummary}</p>
@@ -749,7 +1024,8 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
           </div>
           <button
             aria-label="Close integration setup"
-            className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[0.035] text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06]"
+            className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/[0.035] text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={isBusy}
             onClick={onClose}
             type="button"
           >
@@ -760,39 +1036,58 @@ export function IntegrationSetupDialog({ accountEmail, connection, onClose, onSa
         <div className="grid gap-3">{fields}</div>
 
         <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.025] px-3 py-3 text-xs leading-relaxed text-slate-400">
-          <Instructions connectionId={connection.id} />
+          <Instructions connectionId={connection.id} googleLoginAvailable={googleLoginAvailable} />
         </div>
 
-        <div className="mt-4 rounded-xl border border-[rgba(var(--accent-rgb),0.18)] bg-[rgba(var(--accent-rgb),0.06)] px-3 py-2 text-xs leading-relaxed text-slate-200">
-          {message}
-        </div>
-
-        <div className="mt-5 flex items-center justify-between gap-2 border-t border-white/8 pt-4">
-          <button
-            className="h-9 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06]"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-          <div className="flex items-center gap-2">
+        <div className="sticky bottom-0 z-10 -mx-5 -mb-5 mt-5 grid gap-3 border-t border-white/8 bg-slate-950/95 px-5 pb-5 pt-4 shadow-[0_-14px_30px_rgba(2,6,23,0.72)] backdrop-blur-xl">
+          <div className="rounded-xl border border-[rgba(var(--accent-rgb),0.18)] bg-[rgba(var(--accent-rgb),0.06)] px-3 py-2 text-xs leading-relaxed text-slate-200">
+            {message}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
             <button
-              className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.32)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={loading || saving || testing || authorizing}
-              onClick={handleTest}
+              className="h-9 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-300 transition hover:border-white/20 hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={isBusy}
+              onClick={onClose}
               type="button"
             >
-              <ShieldCheck className="h-4 w-4" />
-              {testing ? "Testing..." : "Test"}
+              Close
             </button>
+            {canDisconnect ? (
+              <button
+                className="flex h-9 items-center gap-2 rounded-lg border border-rose-300/15 bg-rose-300/[0.045] px-3 text-xs text-rose-100/85 transition hover:border-rose-300/28 hover:bg-rose-300/[0.08] disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={isBusy}
+                onClick={() => void disconnectCurrentIntegration()}
+                type="button"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                {disconnecting ? "Disconnecting..." : "Disconnect on this PC"}
+              </button>
+            ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+            {showTest ? (
+              <button
+                className="flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.32)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={isBusy}
+                onClick={handleTest}
+                type="button"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                {testing ? "Checking..." : connection.id === "google-drive" ? "Check connection" : "Check folder"}
+              </button>
+            ) : null}
+            {showSubmit ? (
             <button
               className="flex h-9 items-center gap-2 rounded-lg border border-[rgba(var(--accent-rgb),0.45)] bg-[rgba(var(--accent-rgb),0.18)] px-4 text-sm font-medium text-white transition enabled:hover:bg-[rgba(var(--accent-rgb),0.26)] disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={loading || saving || testing || authorizing}
+              disabled={isBusy}
               type="submit"
             >
-              <Check className="h-4 w-4" />
-              {saving ? "Saving..." : "Save setup"}
+              {isSecretConnection ? <ShieldCheck className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              {connectLabel}
             </button>
+            ) : null}
+            </div>
           </div>
         </div>
       </form>

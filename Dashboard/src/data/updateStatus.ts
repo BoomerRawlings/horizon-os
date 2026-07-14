@@ -7,6 +7,7 @@ export type UpdateCheckSnapshot = {
   checkState?: "current" | "dirty" | "fetch_failed" | "package_stale" | "unsupported" | "update_available";
   current?: string | null;
   dirty?: boolean;
+  downloadUrl?: string;
   fetchFailed?: boolean;
   latest?: string | null;
   message: string;
@@ -18,6 +19,7 @@ export type UpdateCheckSnapshot = {
   supported: boolean;
   sourceUpdateAvailable?: boolean;
   sourceVersion?: string;
+  updateMode?: "installer" | "source";
   updateAvailable?: boolean;
   upstream?: string | null;
   version?: string;

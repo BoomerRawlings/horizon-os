@@ -51,7 +51,6 @@ async function snapshot(port, packagedVersion, packagedCommit) {
     env: {
       ...process.env,
       HORIZON_APP_SOURCE_ROOT: sourceRoot,
-      HORIZON_NATIVE_APP_EXE: path.join(tempRoot, "Horizon.exe"),
       HORIZON_PACKAGED_BUILD_INFO_PATH: buildInfoPath,
       HORIZON_PACKAGED_VERSION: packagedVersion,
       HORIZON_SOURCE_DASHBOARD: sourceDashboard,

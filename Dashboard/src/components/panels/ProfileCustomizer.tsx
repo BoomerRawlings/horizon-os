@@ -76,6 +76,7 @@ function statusTone(status: IntegrationStatus) {
     status === "connected_limited" ||
     status === "stale" ||
     status === "api_key_required" ||
+    status === "billing_required" ||
     status === "permission_missing" ||
     status === "vault_missing"
   ) {
@@ -649,6 +650,7 @@ export function ProfileCustomizer({
           connection={setupConnection}
           onClose={() => setSetupConnection(null)}
           onSave={({ connection, message: saveMessage }) => {
+            setSetupConnection(connection);
             onIntegrationChange(connection);
             setMessage(saveMessage);
           }}

@@ -1,16 +1,33 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell, screen } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, shell, screen } = require("electron");
 const childProcess = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
 const path = require("path");
 const {
+  addHorizonToExistingVault,
+  createStarterVault,
+  nextAvailableVaultPath,
   readVaultConnection,
   samePath,
   vaultConnectionPath,
   vaultStructureStatus,
   writeVaultConnection,
 } = require("../server/vaultConnection.cjs");
+const {
+  createSafeStorageAdapter,
+  decryptIntegrationStore,
+  isEncryptedIntegrationStore,
+  parseMasterKey,
+} = require("../server/integrationStoreCrypto.cjs");
+const {
+  attemptLegacyWindowsMigration,
+  createScheduledTaskRunner,
+  legacyWindowsPaths,
+  migrateLegacyWindowsInstall,
+  repairCanonicalStartupShortcut,
+} = require("./legacyWindowsMigration.cjs");
 
 const APP_ID = "com.rawlings.horizon";
 const HOST = "127.0.0.1";
@@ -18,14 +35,35 @@ const PORT = 3873;
 const APP_ORIGIN = `http://${HOST}:${PORT}/`;
 const shouldLaunchWithBoot = process.argv.includes("--boot");
 const APP_URL = `${APP_ORIGIN}${shouldLaunchWithBoot ? "?boot=1" : ""}`;
+const INTEGRATION_KEY_FILE = "integration-master-key.safe-storage";
 
 let mainWindow = null;
 let serverProcess = null;
 let activeVaultRoot = "";
 let appSourceRoot = "";
 let connectionConfigPath = "";
+let integrationStoreMasterKey = "";
 
 app.setName("Horizon");
+
+function applyEndToEndPathOverrides() {
+  if (process.env.HORIZON_E2E_MODE !== "1") return;
+  const overrides = [
+    ["appData", process.env.HORIZON_E2E_APP_DATA_DIR],
+    ["userData", process.env.HORIZON_E2E_USER_DATA_DIR],
+    ["desktop", process.env.HORIZON_E2E_DESKTOP_DIR],
+    ["documents", process.env.HORIZON_E2E_DOCUMENTS_DIR],
+  ];
+  for (const [name, value] of overrides) {
+    const requestedPath = String(value || "").trim();
+    if (!requestedPath) continue;
+    const resolved = path.resolve(requestedPath);
+    fs.mkdirSync(resolved, { recursive: true });
+    app.setPath(name, resolved);
+  }
+}
+
+applyEndToEndPathOverrides();
 app.setAppUserModelId(APP_ID);
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 Menu.setApplicationMenu(null);
@@ -37,6 +75,129 @@ if (!gotLock) {
 
 function appRoot() {
   return app.isPackaged ? app.getAppPath() : path.resolve(__dirname, "..");
+}
+
+function runLegacyWindowsMigration() {
+  const migrationPaths = legacyWindowsPaths({
+    desktopDir: app.getPath("desktop"),
+    roamingAppDataDir: app.getPath("appData"),
+    userDataDir: app.getPath("userData"),
+  });
+
+  return migrateLegacyWindowsInstall({
+    installedExe: process.execPath,
+    paths: migrationPaths,
+    taskRunner: createScheduledTaskRunner(),
+    writeShortcut: writeCanonicalStartupShortcut,
+  });
+}
+
+function writeCanonicalStartupShortcut(shortcutPath, executable) {
+  fs.mkdirSync(path.dirname(shortcutPath), { recursive: true });
+  return shell.writeShortcutLink(shortcutPath, {
+    appUserModelId: APP_ID,
+    args: "",
+    cwd: path.dirname(executable),
+    description: "Launches Horizon at Windows sign-in.",
+    icon: executable,
+    iconIndex: 0,
+    target: executable,
+  });
+}
+
+function repairPackagedStartupShortcut() {
+  const paths = legacyWindowsPaths({
+    desktopDir: app.getPath("desktop"),
+    roamingAppDataDir: app.getPath("appData"),
+    userDataDir: app.getPath("userData"),
+  });
+  return repairCanonicalStartupShortcut({
+    installedExe: process.execPath,
+    readShortcut(shortcutPath) {
+      return shell.readShortcutLink(shortcutPath);
+    },
+    shortcutPath: paths.canonicalStartupShortcut,
+    writeShortcut: writeCanonicalStartupShortcut,
+  });
+}
+
+function writeProtectedKey(filePath, protectedValue) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(temporaryPath, protectedValue, { flag: "wx", mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    try {
+      if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    } catch {
+      // A failed cleanup must not replace the safe, non-secret setup error below.
+    }
+    throw error;
+  }
+}
+
+async function loadOrCreateIntegrationMasterKey() {
+  const userDataPath = app.getPath("userData");
+  const keyPath = path.join(userDataPath, INTEGRATION_KEY_FILE);
+  const settingsPath = path.join(userDataPath, "integration-settings.json");
+  const credentialStorage = await createSafeStorageAdapter(safeStorage);
+  if (!credentialStorage) {
+    throw new Error("Horizon cannot access operating-system credential protection. Integration credentials were not opened or changed.");
+  }
+
+  if (fs.existsSync(keyPath)) {
+    try {
+      const protectedValue = fs.readFileSync(keyPath);
+      if (!protectedValue.length) throw new Error("empty protected key");
+      const unlocked = await credentialStorage.decryptString(protectedValue);
+      const unlockedKey = unlocked.result;
+      parseMasterKey(unlockedKey);
+      if (fs.existsSync(settingsPath)) {
+        const serializedSettings = fs.readFileSync(settingsPath, "utf8");
+        if (isEncryptedIntegrationStore(serializedSettings)) {
+          decryptIntegrationStore(serializedSettings, unlockedKey);
+        }
+      }
+      if (unlocked.shouldReEncrypt) {
+        const refreshedValue = await credentialStorage.encryptString(unlockedKey);
+        const refreshed = await credentialStorage.decryptString(refreshedValue);
+        const expected = parseMasterKey(unlockedKey);
+        const verified = parseMasterKey(refreshed.result);
+        if (!crypto.timingSafeEqual(expected, verified)) throw new Error("safe storage refresh verification failed");
+        writeProtectedKey(keyPath, refreshedValue);
+      }
+      return unlockedKey;
+    } catch {
+      throw new Error("Horizon could not unlock its saved integration credentials. It stopped without reading, replacing, or exposing them.");
+    }
+  }
+
+  if (fs.existsSync(settingsPath)) {
+    let serializedSettings;
+    try {
+      serializedSettings = fs.readFileSync(settingsPath, "utf8");
+    } catch {
+      throw new Error("Horizon could not inspect existing integration settings. It stopped without reading or replacing them.");
+    }
+    if (isEncryptedIntegrationStore(serializedSettings)) {
+      throw new Error("Horizon found encrypted integration credentials but their operating-system-protected key is missing. It stopped without replacing them.");
+    }
+  }
+
+  try {
+    const newKey = crypto.randomBytes(32).toString("base64");
+    parseMasterKey(newKey);
+    const protectedValue = await credentialStorage.encryptString(newKey);
+    const verification = await credentialStorage.decryptString(protectedValue);
+    const expected = parseMasterKey(newKey);
+    const verified = parseMasterKey(verification.result);
+    if (!crypto.timingSafeEqual(expected, verified)) throw new Error("safe storage verification failed");
+    writeProtectedKey(keyPath, protectedValue);
+    return newKey;
+  } catch {
+    throw new Error("Horizon could not create an operating-system-protected credential key. No integration credentials were opened or changed.");
+  }
 }
 
 function sourceRoot() {
@@ -60,7 +221,10 @@ function legacyIntegrationVault() {
   try {
     const settingsPath = path.join(app.getPath("userData"), "integration-settings.json");
     if (!fs.existsSync(settingsPath)) return "";
-    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    const serialized = fs.readFileSync(settingsPath, "utf8");
+    const settings = isEncryptedIntegrationStore(serialized)
+      ? decryptIntegrationStore(serialized, integrationStoreMasterKey)
+      : JSON.parse(serialized);
     return String(settings?.integrations?.obsidian?.settings?.vaultPath || "").trim();
   } catch {
     return "";
@@ -72,9 +236,9 @@ function saveVaultConnection(vaultPath, source) {
 }
 
 function invalidVaultDetail(status) {
-  if (!status.exists) return "That folder is not currently available. Make sure Obsidian Sync has created it locally, then try again.";
+  if (!status.exists) return "That folder is not currently available. Choose the folder that opens as your vault in Obsidian.";
   const missing = status.missingRequired.join(", ");
-  return `That folder exists, but it is missing Horizon's core vault structure: ${missing}. Let Obsidian Sync finish and choose the vault's top-level folder.`;
+  return `That folder is missing Horizon's core workspace items: ${missing}. Choose an Obsidian vault so Horizon can add only the missing files, or choose another Horizon workspace.`;
 }
 
 function showFolderDialog(options) {
@@ -85,29 +249,15 @@ function showSetupMessage(options) {
   return mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options);
 }
 
-async function chooseVault({ initialPath = "", showIntroduction = false } = {}) {
-  if (showIntroduction) {
-    const intro = await dialog.showMessageBox({
-      buttons: ["Choose synced vault", "Quit"],
-      cancelId: 1,
-      defaultId: 0,
-      detail: "Open Obsidian and let Sync finish first. Horizon will use the files in place; it will not copy, merge, or replace your vault. Integration sign-ins stay local to this machine.",
-      message: "Connect Horizon to your existing Obsidian vault",
-      noLink: true,
-      title: "Horizon setup",
-      type: "info",
-    });
-    if (intro.response !== 0) return "";
-  }
-
+async function chooseVault({ initialPath = "" } = {}) {
   let defaultPath = initialPath && fs.existsSync(initialPath) ? initialPath : os.homedir();
   while (true) {
     const selection = await showFolderDialog({
       buttonLabel: "Use this vault",
       defaultPath,
-      message: "Choose the top-level folder Obsidian Sync created on this computer.",
+      message: "Choose the top-level folder that opens as your vault in Obsidian.",
       properties: ["openDirectory"],
-      title: "Choose your synced Obsidian vault",
+      title: "Use an existing workspace",
     });
     if (selection.canceled || !selection.filePaths[0]) return "";
 
@@ -117,18 +267,99 @@ async function chooseVault({ initialPath = "", showIntroduction = false } = {}) 
       return status.path;
     }
 
+    const canPrepare = status.exists && (status.hasObsidianConfig || fs.existsSync(path.join(status.path, "HORIZON.md")));
+    if (canPrepare) {
+      const prepare = await showSetupMessage({
+        buttons: ["Add missing Horizon files", "Choose another folder", "Cancel"],
+        cancelId: 2,
+        defaultId: 0,
+        detail: "Horizon will create only its missing folders and starter files. It will not replace, move, or delete any note already in this vault.",
+        message: "Make this vault ready for Horizon?",
+        noLink: true,
+        title: "Horizon setup",
+        type: "question",
+      });
+      if (prepare.response === 0) {
+        try {
+          const prepared = addHorizonToExistingVault(path.join(appRoot(), "server", "starter-vault"), status.path);
+          saveVaultConnection(prepared.path, "existing-vault-prepared");
+          return prepared.path;
+        } catch (error) {
+          await showSetupMessage({
+            buttons: ["Choose another folder"],
+            detail: error instanceof Error ? error.message : String(error),
+            message: "Horizon could not prepare that vault",
+            noLink: true,
+            title: "Horizon setup",
+            type: "error",
+          });
+          continue;
+        }
+      }
+      if (prepare.response === 1) {
+        defaultPath = status.path;
+        continue;
+      }
+      return "";
+    }
+
     defaultPath = status.exists ? status.path : defaultPath;
     const retry = await showSetupMessage({
       buttons: ["Choose another folder", "Cancel"],
       cancelId: 1,
       defaultId: 0,
       detail: invalidVaultDetail(status),
-      message: "This is not the synced Horizon vault yet",
+      message: "This folder is not ready for Horizon",
       noLink: true,
       title: "Horizon setup",
       type: "warning",
     });
     if (retry.response !== 0) return "";
+  }
+}
+
+async function chooseInitialVault(initialPath = "") {
+  while (true) {
+    const preferredPath = nextAvailableVaultPath(path.join(app.getPath("documents"), "Horizon Vault"));
+    const intro = await showSetupMessage({
+      buttons: ["Create my workspace", "Use an existing vault", "Quit"],
+      cancelId: 2,
+      defaultId: 0,
+      detail: `Recommended: Horizon creates a new workspace at ${preferredPath}. Nothing else is required. You can open this folder in Obsidian or move it later.`,
+      message: "Welcome to Horizon",
+      noLink: true,
+      title: "Horizon setup",
+      type: "info",
+    });
+
+    if (intro.response === 2) return "";
+    if (intro.response === 1) {
+      const selected = await chooseVault({ initialPath });
+      if (selected) return selected;
+      continue;
+    }
+
+    try {
+      const created = createStarterVault(path.join(appRoot(), "server", "starter-vault"), preferredPath);
+      saveVaultConnection(created.path, "starter-workspace");
+      return created.path;
+    } catch (error) {
+      const retry = await showSetupMessage({
+        buttons: ["Try again", "Use an existing vault", "Quit"],
+        cancelId: 2,
+        defaultId: 0,
+        detail: error instanceof Error ? error.message : String(error),
+        message: "Horizon could not create the workspace",
+        noLink: true,
+        title: "Horizon setup",
+        type: "error",
+      });
+      if (retry.response === 2) return "";
+      if (retry.response === 1) {
+        const selected = await chooseVault({ initialPath });
+        if (selected) return selected;
+      }
+    }
   }
 }
 
@@ -157,10 +388,7 @@ async function resolveVaultRoot() {
     }
   }
 
-  return chooseVault({
-    initialPath: saved?.vaultPath || legacyIntegrationVault(),
-    showIntroduction: true,
-  });
+  return chooseInitialVault(saved?.vaultPath || legacyIntegrationVault());
 }
 
 function iconPath() {
@@ -209,6 +437,8 @@ async function healthCheck() {
     health
     && health.app === "rawlings-os"
     && health.ui === "horizon-react-vite"
+    && health.credentialEncryption === "os_protected"
+    && health.version === app.getVersion()
     && samePath(health.vaultPath, activeVaultRoot),
   );
 }
@@ -221,15 +451,17 @@ async function waitForServer() {
   return false;
 }
 
-async function ensureServer() {
+async function ensureServer(masterKey) {
   const running = await healthSnapshot();
+  const isHorizonServer = running?.app === "rawlings-os" && running?.ui === "horizon-react-vite";
   if (
-    running?.app === "rawlings-os"
-    && running?.ui === "horizon-react-vite"
+    isHorizonServer
+    && running.credentialEncryption === "os_protected"
+    && running.version === app.getVersion()
     && samePath(running.vaultPath, activeVaultRoot)
   ) return;
-  if (running?.app === "rawlings-os" && running?.ui === "horizon-react-vite") {
-    throw new Error(`Another Horizon server is already using ${running.vaultPath}. Close that Horizon window, then open this one again for ${activeVaultRoot}.`);
+  if (isHorizonServer) {
+    throw new Error("A different Horizon window is already running. Close every Horizon window, then reopen Horizon.");
   }
 
   const serverPath = path.join(appRoot(), "server.cjs");
@@ -248,9 +480,12 @@ async function ensureServer() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
+      HORIZON_ALLOW_ORIGINLESS_MUTATIONS: "0",
       HORIZON_APP_DATA_DIR: app.getPath("userData"),
       HORIZON_APP_SOURCE_ROOT: appSourceRoot,
+      HORIZON_INTEGRATION_STORE_KEY: masterKey,
       HORIZON_NATIVE_APP_EXE: process.execPath,
+      HORIZON_REQUIRE_CREDENTIAL_ENCRYPTION: "1",
       HORIZON_SOURCE_DASHBOARD: path.join(appSourceRoot, "Dashboard"),
       HORIZON_TIME_ZONE: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       HORIZON_VAULT_CONNECTION_PATH: connectionConfigPath,
@@ -270,7 +505,7 @@ async function ensureServer() {
   }
 }
 
-function createWindow() {
+function createWindow({ legacyCleanupNeedsRetry = false } = {}) {
   const bounds = rightHalfBounds();
 
   mainWindow = new BrowserWindow({
@@ -299,6 +534,21 @@ function createWindow() {
     mainWindow.webContents
       .executeJavaScript("window.__horizonWindowVisible = true; window.dispatchEvent(new Event('horizon-window-visible'));")
       .catch(() => undefined);
+    if (legacyCleanupNeedsRetry) {
+      setTimeout(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        void dialog.showMessageBox(mainWindow, {
+          buttons: ["Continue"],
+          cancelId: 0,
+          defaultId: 0,
+          detail: "Windows did not let Horizon finish cleaning up an older v0.2.7 installation. Your workspace and saved integration settings were left unchanged. Horizon will safely try the cleanup again the next time it opens. If this notice returns, close Horizon and reopen it as the same Windows user.",
+          message: "Horizon is ready to use.",
+          noLink: true,
+          title: "Older Horizon cleanup needs another try",
+          type: "warning",
+        }).catch(() => undefined);
+      }, 250);
+    }
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -354,7 +604,15 @@ app.on("second-instance", (_event, commandLine) => {
 
 app.whenReady().then(async () => {
   try {
+    let legacyCleanupNeedsRetry = false;
+    if (app.isPackaged && process.platform === "win32") {
+      const migrationAttempt = attemptLegacyWindowsMigration(runLegacyWindowsMigration);
+      legacyCleanupNeedsRetry = migrationAttempt.retryOnNextLaunch;
+      const shortcutRepairAttempt = attemptLegacyWindowsMigration(repairPackagedStartupShortcut);
+      legacyCleanupNeedsRetry = legacyCleanupNeedsRetry || shortcutRepairAttempt.retryOnNextLaunch;
+    }
     appSourceRoot = sourceRoot();
+    integrationStoreMasterKey = await loadOrCreateIntegrationMasterKey();
     connectionConfigPath = process.env.HORIZON_VAULT_CONNECTION_PATH || vaultConnectionPath(app.getPath("userData"));
     activeVaultRoot = await resolveVaultRoot();
     if (!activeVaultRoot) {
@@ -362,11 +620,13 @@ app.whenReady().then(async () => {
       return;
     }
     registerDesktopBridge();
-    await ensureServer();
-    createWindow();
+    await ensureServer(integrationStoreMasterKey);
+    createWindow({ legacyCleanupNeedsRetry });
   } catch (error) {
     dialog.showErrorBox("Horizon could not start", error instanceof Error ? error.message : String(error));
     app.quit();
+  } finally {
+    integrationStoreMasterKey = "";
   }
 });
 

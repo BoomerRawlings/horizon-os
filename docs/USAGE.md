@@ -1,5 +1,11 @@
 # How to use Horizon
 
+## First launch
+
+Choose **Create my workspace** to start with a ready-to-use Horizon workspace. You do not need Obsidian, Git, Node.js, API keys, or integrations.
+
+If you already have a Horizon workspace in Obsidian, choose the existing-vault option and select its top-level folder. You can connect optional services later under **Settings > Integrations**.
+
 ## Start with Capture
 
 Write the thought, deadline, link, or task as it arrives. Horizon saves the original text before asking you to organize it.
@@ -38,6 +44,8 @@ Status changes such as retiring a project still update the underlying project re
 
 Research combines local paper notes with configured Zotero records. Search by title, author, DOI, or subject; use reading stages to separate **To read**, **Skimming**, **Read**, and **Annotated**; and dog-ear papers that need attention. Exact DOI matches can complete missing bibliographic fields without replacing values you already saved.
 
+Double-click a paper stack to spread it across the same desk; double-click again to restack it. More than one stack can stay open. Drag an open paper anywhere to make a working arrangement, and Horizon remembers that arrangement on this computer. Drag one paper onto another to toggle a visible paper-to-paper connection. Sticky notes can connect to more than one paper the same way. Use the mouse wheel over the desk to zoom from an overview into readable card detail; the full reading copy keeps its own scroll area.
+
 Workbench is the landing area for writing that is not ready to file. Write freely, then review the proposed cleanup and connections before saving it as a durable note, project context, calendar item, or research idea. Use a small number of meaningful connections; the goal is a useful graph, not a dense one.
 
 ## Use Focus
@@ -60,4 +68,6 @@ You do not need to empty every queue before doing useful work.
 
 Profile, theme, start page, timer defaults, privacy controls, and integrations live under Settings. Some integrations are full data sources; others intentionally open the native app or a web page. Horizon labels those capabilities separately.
 
-Horizon uses the existing Obsidian vault selected on this computer. Obsidian Sync moves the vault files between devices; each Horizon installation remembers its own local path and requires its own integration sign-ins. Change the active folder under **Settings > Data & Storage** without importing or duplicating notes.
+Horizon uses the workspace created or selected on this computer. If that workspace is an Obsidian vault, Obsidian Sync can move its files between devices. Each Horizon installation remembers its own local path and optional integration sign-ins. Change the active folder under **Settings > Data & Storage** without importing or duplicating notes.
+
+See [Connect apps and services](INTEGRATIONS.md) for exact setup steps and official links for every integration.

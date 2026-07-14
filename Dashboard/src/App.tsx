@@ -185,7 +185,9 @@ export function App() {
     (focusNavigationPreference === "collapsed" ||
       (focusNavigationPreference === "auto" && focusTimer.isRunning && focusTimer.mode === "focus"));
   const navigationCollapsed = focusNavigationCollapsed || developmentSandboxCanvasMode;
-  const immersiveWorkspace = workspaceScreen === "focus" || developmentSandboxCanvasMode;
+  const immersiveWorkspace = workspaceScreen === "focus"
+    || workspaceScreen === "research"
+    || workspaceScreen === "development-sandbox";
   const calendarPriorityCount = useMemo(
     () => upcomingPriorityItems(calendar.items, calendar.today, 3).length,
     [calendar.items, calendar.today],
@@ -237,6 +239,20 @@ export function App() {
       window.scrollTo({ behavior: "auto", left: 0, top: 0 });
     }
   }
+
+  useEffect(() => {
+    const shell = homeShellRef.current;
+    if (!shell || (workspaceScreen !== "research" && workspaceScreen !== "development-sandbox")) return undefined;
+
+    const lockWorkspaceScroll = () => {
+      if (shell.scrollTop !== 0) shell.scrollTop = 0;
+      if (shell.scrollLeft !== 0) shell.scrollLeft = 0;
+    };
+
+    lockWorkspaceScroll();
+    shell.addEventListener("scroll", lockWorkspaceScroll, { passive: true });
+    return () => shell.removeEventListener("scroll", lockWorkspaceScroll);
+  }, [workspaceScreen]);
 
   function animateStageTo(getHeight: () => number) {
     clearStageAnimationFrame();
@@ -939,7 +955,11 @@ export function App() {
             wheel/trackpad, but the visual rail is hidden and expanding collections own
             their scrolling inside the relevant panel. */}
         <section
-          className={`app-home-shell flex h-screen flex-col overflow-y-auto overflow-x-hidden px-10 py-6 ${
+          className={`app-home-shell flex h-screen flex-col overflow-x-hidden px-10 py-6 ${
+            workspaceScreen === "research" || workspaceScreen === "development-sandbox"
+              ? "overflow-y-clip"
+              : "overflow-y-auto"
+          } ${
             immersiveWorkspace ? "focus-mode-shell" : ""
           }`}
           ref={homeShellRef}
@@ -1065,7 +1085,7 @@ export function App() {
               >
                 {captureMode === "sweep" ? (
                   <CaptureSweep
-                    allowAi={appSettings.privacy.codexCanParseCaptures}
+                    allowAi={appSettings.privacy.openAiCanParseCaptures}
                     onApplied={(result) => {
                       if (result.refreshCalendar) calendar.refresh();
                     }}
@@ -1076,7 +1096,7 @@ export function App() {
                   />
                 ) : (
                   <CaptureWorkspace
-                    allowAi={appSettings.privacy.codexCanParseCaptures}
+                    allowAi={appSettings.privacy.openAiCanParseCaptures}
                     audioHandle={focusAudioRef}
                     autoRunKey={captureAutoRunKey}
                     focusKey={captureFocusKey}

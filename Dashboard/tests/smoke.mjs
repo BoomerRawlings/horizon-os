@@ -2,17 +2,86 @@
 // Run: npm run smoke   (from Dashboard/)
 import { execFileSync } from "node:child_process";
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import integrationStoreCrypto from "../server/integrationStoreCrypto.cjs";
+
+const { decryptIntegrationStore, isEncryptedIntegrationStore } = integrationStoreCrypto;
 
 const PORT = 3899;
 const BASE = `http://127.0.0.1:${PORT}`;
 const here = path.dirname(fileURLToPath(import.meta.url));
-const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
-  // RSB_DISABLE_AI keeps triage deterministic + offline for smoke: it exercises the
-  // local heuristics (no network or key needed), which is the path we
-  // want smoke to guard. AI refinement is tested manually, not in the 10-second smoke.
-  env: { ...process.env, PORT: String(PORT), RSB_DISABLE_AI: "1", RSB_DISABLE_EXTERNAL_INTEGRATIONS: "1" },
+const smokeServerPath = path.resolve(process.env.HORIZON_SMOKE_SERVER_PATH || path.join(here, "..", "server.cjs"));
+const smokePackagePath = path.resolve(process.env.HORIZON_SMOKE_PACKAGE_PATH || path.join(here, "..", "package.json"));
+const smokeTargetLabel = process.env.HORIZON_SMOKE_SERVER_PATH ? "packaged app" : "source app";
+const expectedVersion = JSON.parse(readFileSync(smokePackagePath, "utf8")).version;
+const expectedVersionParts = expectedVersion.split(".").map((part) => Number(part));
+const releaseFixtureVersion = `${expectedVersionParts[0]}.${expectedVersionParts[1]}.${expectedVersionParts[2] + 1}`;
+const scratchAppData = mkdtempSync(path.join(tmpdir(), "horizon-smoke-"));
+const scratchVault = path.join(scratchAppData, "vault");
+const integrationStorePath = path.join(scratchAppData, "integration-settings.json");
+const integrationStoreKey = randomBytes(32).toString("base64");
+const nativeRelaunchPlanPath = path.join(scratchAppData, "native-relaunch-plan.json");
+const releaseFixturePath = path.join(scratchAppData, "latest-release.json");
+cpSync(path.join(here, "..", "server", "starter-vault"), scratchVault, { recursive: true });
+writeFileSync(releaseFixturePath, `${JSON.stringify({
+  assets: [{
+    browser_download_url: "https://example.invalid/Horizon-Setup.exe",
+    name: "Horizon-Setup.exe",
+  }],
+  html_url: "https://example.invalid/horizon-release",
+  tag_name: `v${releaseFixtureVersion}`,
+}, null, 2)}\n`, "utf8");
+
+function writeIntegrationFixture(integrations) {
+  writeFileSync(integrationStorePath, `${JSON.stringify({ integrations, updatedAt: new Date().toISOString(), version: 1 }, null, 2)}\n`, "utf8");
+}
+
+writeIntegrationFixture({
+  "ai-agent": {
+    lastTestResult: { message: "Legacy model refresh.", ok: true, state: "models_refreshed" },
+    lastTestedAt: "2026-07-01T00:00:00.000Z",
+    settings: { model: "gpt-5.4-mini", provider: "OpenAI", tokenOrKey: "legacy-openai-key" },
+  },
+  "google-drive": {
+    lastTestResult: { message: "Google access was revoked.", ok: false, state: "needs_reauth" },
+    lastTestedAt: "2026-07-13T00:00:00.000Z",
+    settings: {
+      accountEmail: "smoke@example.com",
+      clientId: "smoke-google-client",
+      oauthTokens: { accessToken: "google-access-secret", expiryDate: Date.now() + 3_600_000, refreshToken: "google-refresh-secret" },
+    },
+  },
+  zotero: {
+    lastTestResult: { message: "Legacy Zotero connection.", ok: true, state: "connected" },
+    lastTestedAt: "2026-07-01T00:00:00.000Z",
+    settings: { zoteroApiKey: "legacy-zotero-key", zoteroUserId: "123", zoteroUsername: "legacy-user" },
+  },
+});
+const server = spawn(process.execPath, [smokeServerPath], {
+  // Capture requests remain offline unless they explicitly opt in. The fixture removes
+  // its fake AI key before Capture tests, so the explicit-opt-in branch can be verified
+  // without making a network request.
+  env: {
+    ...process.env,
+    HORIZON_ALLOW_ORIGINLESS_MUTATIONS: "1",
+    HORIZON_APP_DATA_DIR: scratchAppData,
+    HORIZON_INTEGRATION_STORE_KEY: integrationStoreKey,
+    HORIZON_NATIVE_APP_EXE: process.execPath,
+    HORIZON_REQUIRE_CREDENTIAL_ENCRYPTION: "1",
+    HORIZON_TEST_NATIVE_RELAUNCH_PLAN_PATH: nativeRelaunchPlanPath,
+    HORIZON_TEST_RELEASE_FIXTURE_PATH: releaseFixturePath,
+    HORIZON_VAULT_ROOT: scratchVault,
+    PORT: String(PORT),
+    RSB_DISABLE_AI: "0",
+    RSB_DISABLE_EXTERNAL_INTEGRATIONS: "1",
+    RSB_DISABLE_INTEGRATION_MIRROR: "1",
+    RSB_DISABLE_RUN_LOGS: "1",
+  },
   stdio: "ignore",
 });
 
@@ -22,7 +91,11 @@ const server = spawn(process.execPath, [path.join(here, "..", "server.cjs")], {
 // itself has already passed. taskkill terminates the process tree directly, bypassing
 // that emulation layer entirely, so it doesn't hit the race.
 function shutdown(code) {
+  const cleanup = () => {
+    try { rmSync(scratchAppData, { force: true, recursive: true }); } catch {}
+  };
   if (server.exitCode !== null || server.signalCode !== null) {
+    cleanup();
     process.exit(code);
     return;
   }
@@ -32,15 +105,38 @@ function shutdown(code) {
     } catch {
       // Already exited or couldn't be found - fine, we're exiting either way.
     }
+    cleanup();
     process.exit(code);
     return;
   }
-  server.once("exit", () => process.exit(code));
+  server.once("exit", () => {
+    cleanup();
+    process.exit(code);
+  });
   server.kill();
 }
 
 const fail = (msg) => { console.error(`SMOKE FAIL: ${msg}`); shutdown(1); };
 const ok = (msg) => console.log(`  ok - ${msg}`);
+
+function assertEncryptedIntegrationStore(label, forbiddenSecrets) {
+  const serialized = readFileSync(integrationStorePath, "utf8");
+  if (!isEncryptedIntegrationStore(serialized)) fail(`${label}: integration store remained plaintext`);
+  for (const secret of [...forbiddenSecrets, integrationStoreKey]) {
+    if (secret && serialized.includes(secret)) fail(`${label}: raw integration store exposed a test credential`);
+  }
+  let decrypted;
+  try {
+    decrypted = decryptIntegrationStore(serialized, integrationStoreKey);
+  } catch {
+    fail(`${label}: encrypted integration store could not be authenticated`);
+  }
+  if (!decrypted?.integrations || typeof decrypted.integrations !== "object") {
+    fail(`${label}: decrypted integration store was invalid`);
+  }
+  ok(`${label}: raw integration store is encrypted and contains no test credentials`);
+  return decrypted;
+}
 
 async function waitForHealth(tries = 40) {
   for (let i = 0; i < tries; i++) {
@@ -55,14 +151,72 @@ async function waitForHealth(tries = 40) {
 
 const health = await waitForHealth();
 if (health.app !== "rawlings-os") fail(`unexpected health payload: ${JSON.stringify(health)}`);
-if (health.version !== "0.2.7") fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
+if (health.version !== expectedVersion) fail(`/api/health returned the wrong app version: ${JSON.stringify(health)}`);
 if (!health.vaultReady || !health.vaultPath) fail(`/api/health did not identify a ready active vault: ${JSON.stringify(health)}`);
-ok("/api/health identifies Horizon 0.2.7 and its ready active vault");
+if (health.credentialEncryption !== "os_protected") fail(`/api/health did not require protected integration settings: ${JSON.stringify(health)}`);
+const healthHeaders = await fetch(`${BASE}/api/health`);
+if (
+  healthHeaders.headers.get("x-frame-options") !== "DENY"
+  || healthHeaders.headers.get("content-security-policy") !== "frame-ancestors 'none'"
+) fail("non-Constellation routes must remain frame-denied");
+ok(`/api/health identifies Horizon ${expectedVersion} and its ready active vault`);
+
+const reboundStatus = await new Promise((resolve, reject) => {
+  const request = httpRequest({
+    headers: { host: "malicious.example" },
+    hostname: "127.0.0.1",
+    method: "GET",
+    path: "/api/health",
+    port: PORT,
+  }, (response) => {
+    response.resume();
+    response.on("end", () => resolve(response.statusCode));
+  });
+  request.on("error", reject);
+  request.end();
+});
+if (reboundStatus !== 403) fail(`unexpected Host header should be rejected with 403, got ${reboundStatus}`);
+
+const captureFolder = path.join(scratchVault, "Inbox", "Captures");
+const capturesBeforeHostileRequests = readdirSync(captureFolder).sort();
+const hostileCapture = await fetch(`${BASE}/api/capture`, {
+  body: JSON.stringify({ text: "This hostile capture must never be saved." }),
+  headers: {
+    "content-type": "text/plain",
+    origin: "https://malicious.example",
+  },
+  method: "POST",
+});
+if (hostileCapture.status !== 403) {
+  fail(`cross-origin capture write should be rejected with 403, got ${hostileCapture.status}`);
+}
+const nonJsonCapture = await fetch(`${BASE}/api/capture`, {
+  body: JSON.stringify({ text: "This non-JSON capture must never be saved." }),
+  headers: {
+    "content-type": "text/plain",
+    origin: BASE,
+  },
+  method: "POST",
+});
+if (nonJsonCapture.status !== 415) {
+  fail(`non-JSON capture write should be rejected with 415, got ${nonJsonCapture.status}`);
+}
+const capturesAfterHostileRequests = readdirSync(captureFolder).sort();
+if (JSON.stringify(capturesAfterHostileRequests) !== JSON.stringify(capturesBeforeHostileRequests)) {
+  fail("rejected browser writes changed the Capture folder");
+}
+ok("localhost rejects DNS-rebinding hosts, hostile origins, and non-JSON writes without changing the workspace");
 
 const updateResponse = await fetch(`${BASE}/api/update/check`);
 const update = await updateResponse.json();
 if (!updateResponse.ok || update.version !== health.version || !update.checkedAt || !update.checkState) {
   fail(`/api/update/check returned an incomplete status: ${JSON.stringify(update)}`);
+}
+if (update.updateMode !== "installer" || !String(update.downloadUrl || "").endsWith("/Horizon-Setup.exe")) {
+  fail(`/api/update/check did not use the packaged installer update path: ${JSON.stringify(update)}`);
+}
+if (!update.updateAvailable || update.sourceVersion !== releaseFixtureVersion || update.checkState !== "update_available") {
+  fail(`/api/update/check did not identify the newer installer fixture: ${JSON.stringify(update)}`);
 }
 if (update.fetchFailed && /up to date/i.test(update.message || "")) {
   fail("/api/update/check claimed Horizon was current after its fetch failed");
@@ -72,17 +226,145 @@ if (update.checkState === "current" && update.packageStale) {
 }
 ok(`/api/update/check returned a truthful ${update.checkState} status for Horizon ${update.version}`);
 
+const restartResponse = await fetch(`${BASE}/api/update/restart`, { method: "POST" });
+const restart = await restartResponse.json();
+if (!restartResponse.ok || !restart.restarting) fail(`/api/update/restart did not prepare the native relaunch: ${JSON.stringify(restart)}`);
+const nativeRelaunchPlan = JSON.parse(readFileSync(nativeRelaunchPlanPath, "utf8"));
+if (
+  nativeRelaunchPlan.executable !== path.resolve(process.execPath)
+  || nativeRelaunchPlan.helper !== "detached-powershell"
+  || nativeRelaunchPlan.parentPid !== process.pid
+  || JSON.stringify(nativeRelaunchPlan.args) !== JSON.stringify(["--boot"])
+) {
+  fail(`/api/update/restart did not preserve the installed executable and boot argument: ${JSON.stringify(nativeRelaunchPlan)}`);
+}
+ok("/api/update/restart targets the exact installed executable through a detached helper");
+
 const constellationResponse = await fetch(`${BASE}/api/constellation`);
 const constellationHtml = await constellationResponse.text();
-if (!constellationResponse.ok || constellationResponse.headers.get("x-horizon-constellation-source") !== "bundled") {
+if (
+  !constellationResponse.ok
+  || constellationResponse.headers.get("x-horizon-constellation-source") !== "bundled"
+  || !String(constellationResponse.headers.get("content-type") || "").startsWith("text/html")
+) {
   fail("/api/constellation did not serve the bundled workspace");
+}
+if (
+  constellationResponse.headers.get("x-frame-options") !== "SAMEORIGIN"
+  || constellationResponse.headers.get("content-security-policy") !== "frame-ancestors 'self'"
+) {
+  fail("/api/constellation cannot be embedded safely by Horizon's same-origin workspace");
 }
 if (!constellationHtml.includes("Projects · Notes · Relationships")) {
   fail("/api/constellation did not return the Constellation workspace");
 }
+
+const expectedConstellationLayoutMarkers = [
+  "const SYSTEM_RINGS = [720, 1260, 1810];",
+  "const RING_CAPACITY = [4, 7, 10];",
+  "const OUTER_RING_CAPACITY_STEP = 3;",
+  "const OUTER_RING_SPACING = 550;",
+];
+if (!expectedConstellationLayoutMarkers.every((marker) => constellationHtml.includes(marker))) {
+  fail("Constellation is missing its scalable project-ring layout constants");
+}
+const layoutSourceStart = constellationHtml.indexOf("function projectRingCapacity");
+const layoutSourceEnd = constellationHtml.indexOf("function buildGraph", layoutSourceStart);
+if (layoutSourceStart < 0 || layoutSourceEnd <= layoutSourceStart) {
+  fail("Constellation project-ring layout functions could not be verified");
+}
+let orbitalProjectPosition;
+try {
+  const layoutSource = constellationHtml.slice(layoutSourceStart, layoutSourceEnd);
+  orbitalProjectPosition = new Function(
+    "SCENE",
+    "SYSTEM_RINGS",
+    "RING_CAPACITY",
+    "OUTER_RING_CAPACITY_STEP",
+    "OUTER_RING_SPACING",
+    `${layoutSource}\nreturn orbitalProjectPosition;`,
+  )(
+    { width: 6400, height: 4200, centerX: 3200, centerY: 2100 },
+    [720, 1260, 1810],
+    [4, 7, 10],
+    3,
+    550,
+  );
+} catch (error) {
+  fail(`Constellation project-ring layout could not be evaluated: ${error.message}`);
+}
+
+function legacyProjectPosition(index) {
+  const rings = [720, 1260, 1810];
+  const capacities = [4, 7, 10];
+  let ringIndex = 0;
+  let slot = index;
+  while (ringIndex < capacities.length - 1 && slot >= capacities[ringIndex]) {
+    slot -= capacities[ringIndex];
+    ringIndex += 1;
+  }
+  const angle = -Math.PI / 2 + (slot / capacities[ringIndex]) * Math.PI * 2 + ringIndex * 0.16;
+  return {
+    x: 3200 + Math.cos(angle) * rings[ringIndex],
+    y: 2100 + Math.sin(angle) * rings[ringIndex],
+  };
+}
+
+const scalableProjectPositions = Array.from({ length: 160 }, (_, index) => orbitalProjectPosition(index));
+for (let index = 0; index < 21; index += 1) {
+  const previous = legacyProjectPosition(index);
+  const current = scalableProjectPositions[index];
+  if (Math.abs(previous.x - current.x) > 0.000001 || Math.abs(previous.y - current.y) > 0.000001) {
+    fail(`Constellation changed the established small-library position at project ${index + 1}`);
+  }
+}
+const uniqueProjectPositions = new Set(scalableProjectPositions.map((position) =>
+  `${position.x.toFixed(6)}:${position.y.toFixed(6)}`));
+if (uniqueProjectPositions.size !== scalableProjectPositions.length || scalableProjectPositions[21].ringIndex !== 3) {
+  fail("Constellation reused a project position after filling its original three rings");
+}
+for (let left = 0; left < scalableProjectPositions.length; left += 1) {
+  for (let right = left + 1; right < scalableProjectPositions.length; right += 1) {
+    const distance = Math.hypot(
+      scalableProjectPositions[left].x - scalableProjectPositions[right].x,
+      scalableProjectPositions[left].y - scalableProjectPositions[right].y,
+    );
+    if (distance < 500) {
+      fail(`Constellation placed projects ${left + 1} and ${right + 1} only ${distance.toFixed(1)}px apart`);
+    }
+  }
+}
+ok("Constellation preserves its first 21 project positions and keeps 160 generated project positions unique and separated");
+
 const constellationAlias = await fetch(`${BASE}/api/development-sandbox`);
-if (!constellationAlias.ok) fail("legacy Constellation route did not remain compatible");
-ok("/api/constellation serves the bundled workspace and preserves the legacy route");
+const constellationAliasHtml = await constellationAlias.text();
+if (
+  !constellationAlias.ok
+  || constellationAlias.headers.get("x-horizon-constellation-source") !== "bundled"
+  || constellationAlias.headers.get("x-frame-options") !== "SAMEORIGIN"
+  || constellationAlias.headers.get("content-security-policy") !== "frame-ancestors 'self'"
+  || !constellationAliasHtml.includes("Projects · Notes · Relationships")
+) fail("legacy Constellation route did not remain compatible or safely embeddable");
+
+for (const deniedPath of ["/", "/constellation.html", "/api/projects?all=1"]) {
+  const deniedResponse = await fetch(`${BASE}${deniedPath}`);
+  if (
+    deniedResponse.headers.get("x-frame-options") !== "DENY"
+    || deniedResponse.headers.get("content-security-policy") !== "frame-ancestors 'none'"
+  ) fail(`${deniedPath} unexpectedly became frame-embeddable`);
+  await deniedResponse.body?.cancel();
+}
+
+const shellResponse = await fetch(`${BASE}/`);
+const shellHtml = await shellResponse.text();
+const rendererPath = shellHtml.match(/<script\b[^>]*\bsrc=["']([^"']+\.js)["']/i)?.[1];
+if (!shellResponse.ok || !rendererPath) fail("Horizon shell did not reference a renderer bundle");
+const rendererResponse = await fetch(new URL(rendererPath, BASE));
+const rendererSource = await rendererResponse.text();
+if (!rendererResponse.ok || !rendererSource.includes("/api/constellation")) {
+  fail("Horizon renderer did not embed the supported /api/constellation route");
+}
+ok(`${smokeTargetLabel} serves a non-empty, same-origin Constellation while all other sampled routes stay frame-denied`);
 
 const items = await (await fetch(`${BASE}/api/items`)).json();
 const list = Array.isArray(items) ? items : items.items;
@@ -97,6 +379,112 @@ if (!obsidian || !String(obsidian.detailLabel || "").includes(health.vaultPath))
   fail("Obsidian integration does not match the server's active vault");
 }
 ok(`/api/integrations returned ${integ.connections.length} connections, all with capability`);
+
+const legacyZotero = integ.connections.find((connection) => connection.id === "zotero");
+const legacyAi = integ.connections.find((connection) => connection.id === "ai-agent");
+const revokedGoogle = integ.connections.find((connection) => connection.id === "google-drive");
+if (legacyZotero?.status !== "auth_pending" || legacyZotero?.statusLabel !== "Verification needed") {
+  fail(`legacy Zotero state was trusted without permission proof: ${JSON.stringify(legacyZotero)}`);
+}
+if (legacyAi?.status !== "auth_pending" || legacyAi?.statusLabel !== "Verification needed") {
+  fail(`legacy OpenAI state was trusted without current model proof: ${JSON.stringify(legacyAi)}`);
+}
+if (revokedGoogle?.status !== "needs_reauth" || revokedGoogle?.statusLabel !== "Reconnect required") {
+  fail(`revoked Google refresh token was still presented as connected: ${JSON.stringify(revokedGoogle)}`);
+}
+const googleSettingsResponse = await fetch(`${BASE}/api/integrations/google-drive/settings`);
+const googleSettings = await googleSettingsResponse.json();
+if (
+  !googleSettingsResponse.ok
+  || googleSettings.settings?.oauthTokens?.refreshToken
+  || googleSettings.settings?.oauthTokens?.refreshTokenSaved !== true
+  || googleSettings.settings?.googleOAuthAvailable !== true
+  || googleSettings.settings?.scopes !== "drive.metadata.readonly"
+) {
+  fail(`Google settings were not capability-aware and redacted: ${JSON.stringify(googleSettings)}`);
+}
+ok("legacy integration records require one fresh verification");
+const migratedLegacyStore = assertEncryptedIntegrationStore("legacy migration", [
+  "legacy-openai-key",
+  "google-access-secret",
+  "google-refresh-secret",
+  "legacy-zotero-key",
+]);
+if (migratedLegacyStore.integrations?.zotero?.settings?.zoteroApiKey !== "legacy-zotero-key") {
+  fail("legacy migration did not preserve the decrypted integration settings");
+}
+
+writeIntegrationFixture({
+  "ai-agent": {
+    lastTestResult: {
+      message: "Capture access verified.",
+      ok: true,
+      state: "responses_verified",
+      validationVersion: 3,
+      verifiedModel: "gpt-5.4-mini",
+    },
+    lastTestedAt: "2026-07-13T00:00:00.000Z",
+    settings: { model: "gpt-5.4-mini", provider: "OpenAI", tokenOrKey: "verified-openai-key" },
+  },
+  zotero: {
+    lastTestResult: { message: "Read-only Zotero connection.", ok: true, state: "connected_limited" },
+    lastTestedAt: "2026-07-13T00:00:00.000Z",
+    settings: {
+      zoteroAccess: { library: true, write: false },
+      zoteroApiKey: "verified-zotero-key",
+      zoteroUserId: "456",
+      zoteroUsername: "verified-user",
+    },
+  },
+});
+
+const verifiedIntegrations = await (await fetch(`${BASE}/api/integrations`)).json();
+const readOnlyZotero = verifiedIntegrations.connections.find((connection) => connection.id === "zotero");
+const verifiedAi = verifiedIntegrations.connections.find((connection) => connection.id === "ai-agent");
+if (readOnlyZotero?.status !== "connected_limited" || readOnlyZotero?.statusLabel !== "Read-only connection") {
+  fail(`Zotero read-only permissions were not reflected honestly: ${JSON.stringify(readOnlyZotero)}`);
+}
+if (verifiedAi?.status !== "connected" || verifiedAi?.statusLabel !== "Capture access verified") {
+  fail(`current OpenAI Responses proof was not accepted: ${JSON.stringify(verifiedAi)}`);
+}
+ok("Zotero read/write state and current OpenAI Responses proof drive connection status");
+assertEncryptedIntegrationStore("verified fixture migration", ["verified-openai-key", "verified-zotero-key"]);
+
+const untrustedDisconnect = await fetch(`${BASE}/api/integrations/zotero/disconnect`, { method: "POST" });
+if (untrustedDisconnect.status !== 415) {
+  fail(`bodyless disconnect should be rejected with 415, got ${untrustedDisconnect.status}`);
+}
+const trustedDisconnect = await fetch(`${BASE}/api/integrations/zotero/disconnect`, {
+  body: "{}",
+  headers: { "content-type": "application/json" },
+  method: "POST",
+});
+const disconnectedZotero = await trustedDisconnect.json();
+if (!trustedDisconnect.ok || disconnectedZotero.connection?.status !== "not_connected" || disconnectedZotero.connection?.statusLabel !== "Connect Zotero Desktop") {
+  fail(`trusted local disconnect did not return an ordinary setup state: ${JSON.stringify(disconnectedZotero)}`);
+}
+ok("disconnect rejects untrusted form posts and clears only the isolated test credential");
+assertEncryptedIntegrationStore("encrypted disconnect save", ["verified-openai-key", "verified-zotero-key"]);
+
+writeIntegrationFixture({
+  zotero: {
+    settings: { zoteroLocal: { enabled: true, verifiedAt: "2026-07-13T00:00:00.000Z" } },
+  },
+});
+const localZoteroIntegrations = await (await fetch(`${BASE}/api/integrations`)).json();
+const localZotero = localZoteroIntegrations.connections.find((connection) => connection.id === "zotero");
+if (localZotero?.status !== "connected_limited" || localZotero?.statusLabel !== "Read-only connection") {
+  fail(`verified Zotero Desktop local access was not recognized: ${JSON.stringify(localZotero)}`);
+}
+ok("Zotero Desktop can be a keyless, read-only Research source");
+assertEncryptedIntegrationStore("local Zotero fixture migration", [
+  "legacy-openai-key",
+  "google-access-secret",
+  "google-refresh-secret",
+  "legacy-zotero-key",
+  "verified-openai-key",
+  "verified-zotero-key",
+]);
 
 const captureActions = await (await fetch(`${BASE}/api/capture/actions`)).json();
 if (!Array.isArray(captureActions.actions) || captureActions.actions.length < 10) {
@@ -284,12 +672,14 @@ if (!pile.items.every((it) => it.id && (it.source === "to_triage" || it.source =
 }
 ok(`/api/capture/pile returned ${pile.counts.total} item(s) (${pile.counts.toTriage} to-triage + ${pile.counts.queue} queue)`);
 
-// Local heuristics produce suggestions with external AI disabled.
-async function triage(text) {
+// Local heuristics produce suggestions without AI unless the request explicitly opts in.
+async function triage(text, allowAi) {
+  const payload = { text };
+  if (typeof allowAi === "boolean") payload.allowAi = allowAi;
   const r = await fetch(`${BASE}/api/capture/triage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(payload),
   });
   return r.json();
 }
@@ -297,6 +687,14 @@ const cal = await triage("Dentist tomorrow 3pm");
 if (!cal.ok || !cal.triage?.actions?.some((a) => a.type === "create_calendar_item")) {
   fail(`heuristic triage did not suggest a calendar item for a dated capture: ${JSON.stringify(cal.triage?.actions)}`);
 }
+if (cal.aiState !== "disabled") fail(`omitted AI consent should stay local, got ${cal.aiState}`);
+const explicitLocal = await triage("Keep this local", false);
+if (explicitLocal.aiState !== "disabled") fail(`false AI consent should stay local, got ${explicitLocal.aiState}`);
+const explicitOptIn = await triage("Use OpenAI if configured", true);
+if (explicitOptIn.aiState !== "api_key_required") {
+  fail(`explicit AI consent should enter the AI path and report the missing test key, got ${explicitOptIn.aiState}`);
+}
+ok("Capture uses OpenAI only after explicit opt-in; omitted and false consent stay local");
 ok(`/api/capture/triage suggested create_calendar_item with no AI (source ${cal.triage.actions.find((a) => a.type === "create_calendar_item").source})`);
 
 const doi = await triage("https://doi.org/10.1000/xyz interesting study");

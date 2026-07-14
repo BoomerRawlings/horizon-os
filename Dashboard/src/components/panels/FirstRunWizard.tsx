@@ -318,18 +318,19 @@ const steps: WizardStep[] = [
             Review the result, record the next action, and sweep the Capture Queue.
           </InfoCard>
         </div>
-        <InfoCard icon={FolderOpen} title="Your synced vault is already attached" tone="muted">
+        <InfoCard icon={FolderOpen} title="Your Horizon workspace is ready" tone="muted">
           <p>
-            Horizon is reading the existing vault in place at:
+            Horizon is reading your workspace in place at:
           </p>
-          <PathChip value={vaultPath || "your Horizon vault folder"} />
+          <PathChip value={vaultPath || "your Horizon workspace folder"} />
           <p className="mt-2">
-            There is nothing to import or duplicate. Calendar items, projects, papers, captures, and notes arrive through
-            Obsidian Sync. This computer only needs its own sign-ins under <Term>Settings → Integrations</Term>.
+            There is nothing else to install or import. Open this folder as an Obsidian vault whenever you want direct
+            access to the Markdown files. Obsidian and Obsidian Sync are optional. Set up any connections you want under
+            <Term>Settings → Integrations</Term>.
           </p>
           <p className="mt-2">
-            If you ever move the local vault folder, use <Term>Settings → Data & Storage → Change vault</Term>. Horizon
-            validates the replacement and restarts every workspace against the same root.
+            If you ever move the folder, use <Term>Settings → Data & Storage → Change workspace</Term>. Horizon
+            validates the replacement and restarts every screen against the same root.
           </p>
         </InfoCard>
         <div className="flex items-start gap-3 rounded-xl border border-[rgba(var(--accent-rgb),0.22)] bg-[rgba(var(--accent-rgb),0.07)] p-3.5">

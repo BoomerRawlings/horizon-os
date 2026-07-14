@@ -13,6 +13,8 @@ release/
 .DS_Store
 Thumbs.db
 .obsidian/
+!Dashboard/server/starter-vault/.obsidian/
+!Dashboard/server/starter-vault/.obsidian/app.json
 tmp/
 tmp_*.js
 00_System/local/
