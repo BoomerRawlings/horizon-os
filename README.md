@@ -18,6 +18,8 @@ On the Releases page, the automatic **Source code (zip)** downloads are for deve
 
 More detail: [Windows installation](docs/WINDOWS.md)
 
+Current release notes: [Horizon 0.4.0](docs/RELEASE-0.4.0.md)
+
 ## What moves between computers
 
 The workspace created by Horizon starts on this computer. If you connect an Obsidian vault, Obsidian Sync can carry its notes, calendar items, projects, research records, and captures between computers.
@@ -67,6 +69,8 @@ Useful checks:
 ```bash
 npm run test:vault
 npm run test:heuristics
+npm run test:infinite-research
+npm run test:research-documents
 npm run smoke
 npm run privacy:scan
 ```

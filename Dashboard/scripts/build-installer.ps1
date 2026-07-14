@@ -112,6 +112,8 @@ try {
     "smoke",
     "test:heuristics",
     "test:research-desk",
+    "test:infinite-research",
+    "test:research-documents",
     "test:updater",
     "test:updater-parity",
     "test:installer-parity"
