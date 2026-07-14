@@ -92,7 +92,7 @@ export const dockItems: DockItem[] = [
     status: "ready",
     statusLabel: "Mixed",
     menu: [
-      { id: "ucsd-library", label: "University Library", actionId: "research.ucsd_library", badge: "Web", helper: "Search your university library", icon: BookOpen },
+      { id: "worldcat", label: "WorldCat", actionId: "research.worldcat", badge: "Web", helper: "Search library collections worldwide", icon: BookOpen },
       { id: "google-scholar", label: "Google Scholar", actionId: "research.google_scholar", badge: "Web", helper: "Search scholarly articles", icon: GraduationCap },
       { id: "research-notes", label: "Research Notes", actionId: "research.notes", badge: "Folder", helper: "Open your research notes folder", icon: FileText },
       {

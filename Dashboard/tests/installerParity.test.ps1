@@ -1,149 +1,133 @@
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
-$dashboardRoot = Split-Path -Parent $PSScriptRoot
-$installerSource = Join-Path $dashboardRoot "dist-installer\bootstrap-install.ps1"
-$tempBase = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
-$testRoot = Join-Path $tempBase ("horizon-installer-parity-" + [guid]::NewGuid().ToString("N"))
-$bundle = Join-Path $testRoot "bundle"
-$installer = Join-Path $bundle "Install-Horizon.ps1"
-$payload = Join-Path $bundle "HorizonOS"
-$installRoot = Join-Path $testRoot "installed"
-$badInstallRoot = Join-Path $testRoot "mismatch"
-$sourceRepo = Join-Path $testRoot "source-repo"
-$remoteRepo = Join-Path $testRoot "remote.git"
-$version = [string]((Get-Content -Raw -LiteralPath (Join-Path $dashboardRoot "package.json") | ConvertFrom-Json).version)
-$renderer = "assets/index-recovery.js"
+$dashboardRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$packagePath = Join-Path $dashboardRoot "package.json"
+$builderPath = Join-Path $dashboardRoot "scripts\build-installer.ps1"
 
-function Write-Utf8([string]$Path, [string]$Content) {
-  $parent = Split-Path -Parent $Path
-  New-Item -ItemType Directory -Path $parent -Force | Out-Null
-  [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+function Assert-True([bool]$Condition, [string]$Message) {
+  if (-not $Condition) { throw $Message }
 }
 
-function Invoke-TestInstaller([string]$Destination) {
-  $previousErrorAction = $ErrorActionPreference
-  $output = @()
-  $exitCode = 1
-  try {
-    $ErrorActionPreference = "Continue"
-    $output = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
-      -InstallRoot $Destination -SkipDependencies -SkipShortcuts -SkipLaunch -NonInteractive 2>&1)
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorAction
-  }
-  return @{ ExitCode = $exitCode; Output = $output }
-}
-
-function Invoke-TestGit([string[]]$Arguments) {
-  $previousErrorAction = $ErrorActionPreference
-  $output = @()
-  $exitCode = 1
-  try {
-    $ErrorActionPreference = "Continue"
-    $output = @(& git @Arguments 2>&1)
-    $exitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorAction
-  }
-  if ($exitCode -ne 0) {
-    throw "git $($Arguments -join ' ') failed: $($output -join ' ')"
-  }
-  return @($output | ForEach-Object { [string]$_ })
-}
-
-try {
-  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    throw "Git is required for the installer recovery test."
-  }
-
-  New-Item -ItemType Directory -Path $sourceRepo -Force | Out-Null
-  Write-Utf8 (Join-Path $sourceRepo ".gitignore") "Dashboard/native-dist/`r`nDashboard/node_modules/`r`n"
-  Write-Utf8 (Join-Path $sourceRepo "Dashboard\package.json") ((@{ name = "horizon-installer-fixture"; version = $version } | ConvertTo-Json))
-  Write-Utf8 (Join-Path $sourceRepo "Dashboard\README.md") "Installer recovery fixture`r`n"
-  Invoke-TestGit @("-C", $sourceRepo, "init", "-b", "main") | Out-Null
-  Invoke-TestGit @("-C", $sourceRepo, "config", "user.name", "Horizon Installer Test") | Out-Null
-  Invoke-TestGit @("-C", $sourceRepo, "config", "user.email", "installer-test@localhost") | Out-Null
-  Invoke-TestGit @("-C", $sourceRepo, "add", ".") | Out-Null
-  Invoke-TestGit @("-C", $sourceRepo, "commit", "-m", "Fixture") | Out-Null
-  $commit = ([string](Invoke-TestGit @("-C", $sourceRepo, "rev-parse", "HEAD") | Select-Object -Last 1)).Trim()
-  Invoke-TestGit @("clone", "--bare", $sourceRepo, $remoteRepo) | Out-Null
-
-  New-Item -ItemType Directory -Path $bundle -Force | Out-Null
-  [System.IO.File]::Copy($installerSource, $installer)
-  Write-Utf8 (Join-Path $payload "Dashboard\package.json") ((@{ name = "horizon-installer-fixture"; version = $version } | ConvertTo-Json))
-  $native = Join-Path $payload "Dashboard\native-dist\win-unpacked"
-  Write-Utf8 (Join-Path $native "Horizon.exe") "test executable"
-  Write-Utf8 (Join-Path $native "resources\app\package.json") ((@{ version = $version } | ConvertTo-Json))
-  Write-Utf8 (Join-Path $native "resources\app\dist\$renderer") "new renderer"
-  Write-Utf8 (Join-Path $native "resources\app\dist\build-info.json") ((@{
-    commit = $commit
-    dirty = $false
-    renderer = $renderer
-    version = $version
-  } | ConvertTo-Json))
-  Write-Utf8 (Join-Path $bundle "distribution.json") ((@{
-    buildCommit = $commit
-    updateBranch = "main"
-    updateRepoUrl = $remoteRepo
-  } | ConvertTo-Json))
-
-  $oldNative = Join-Path $installRoot "Dashboard\native-dist\win-unpacked"
-  Write-Utf8 (Join-Path $oldNative "Horizon.exe") "old executable"
-  Write-Utf8 (Join-Path $oldNative "resources\app\package.json") '{"version":"0.2.2"}'
-  Write-Utf8 (Join-Path $oldNative "resources\app\dist\assets\index-old.js") "old renderer"
-  Write-Utf8 (Join-Path $oldNative "resources\app\dist\build-info.json") '{"commit":"0000000000000000000000000000000000000000","dirty":false,"renderer":"assets/index-old.js","version":"0.2.2"}'
-  Write-Utf8 (Join-Path $installRoot "Dashboard\native-dist\.horizon-app-only") "Horizon app-only installation`r`n"
-
-  # Reproduce the laptop failure: a .git folder with an unborn HEAD was left behind.
-  Write-Utf8 (Join-Path $installRoot ".git\HEAD") "ref: refs/heads/main`r`n"
-
-  $success = Invoke-TestInstaller $installRoot
-  if ($success.ExitCode -ne 0) {
-    throw "Repair install failed: $($success.Output -join [Environment]::NewLine)"
-  }
-
-  $installedDist = Join-Path $installRoot "Dashboard\native-dist\win-unpacked\resources\app\dist"
-  $installedBuild = Get-Content -Raw -LiteralPath (Join-Path $installedDist "build-info.json") | ConvertFrom-Json
-  if ([string]$installedBuild.commit -ne $commit -or [string]$installedBuild.version -ne $version) {
-    throw "Installed build identity does not match the recovery package."
-  }
-  if (-not (Test-Path -LiteralPath (Join-Path $installedDist $renderer))) {
-    throw "The recovery renderer was not installed."
-  }
-  if (Test-Path -LiteralPath (Join-Path $installedDist "assets\index-old.js")) {
-    throw "The stale renderer survived the repair install."
-  }
-  $installedHead = ([string](Invoke-TestGit @("-C", $installRoot, "rev-parse", "HEAD") | Select-Object -Last 1)).Trim()
-  $installedUpstream = ([string](Invoke-TestGit @("-C", $installRoot, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") | Select-Object -Last 1)).Trim()
-  $installedOrigin = ([string](Invoke-TestGit @("-C", $installRoot, "remote", "get-url", "origin") | Select-Object -Last 1)).Trim()
-  if ($installedHead -ne $commit) {
-    throw "The repaired update checkout is not pinned to the packaged build."
-  }
-  if ($installedUpstream -ne "origin/main") {
-    throw "The repaired update checkout has no usable upstream."
-  }
-  if ([System.IO.Path]::GetFullPath($installedOrigin) -ne [System.IO.Path]::GetFullPath($remoteRepo)) {
-    throw "The repaired update checkout points at the wrong source."
-  }
-
-  Write-Utf8 (Join-Path $bundle "distribution.json") ((@{
-    buildCommit = "2222222222222222222222222222222222222222"
-    updateBranch = "main"
-    updateRepoUrl = $remoteRepo
-  } | ConvertTo-Json))
-  $mismatch = Invoke-TestInstaller $badInstallRoot
-  if ($mismatch.ExitCode -eq 0) {
-    throw "Installer accepted a renderer that did not match the release identity."
-  }
-
-  Write-Host "Installer parity tests passed." -ForegroundColor Green
-} finally {
-  if (Test-Path -LiteralPath $testRoot) {
-    $resolved = [System.IO.Path]::GetFullPath($testRoot)
-    if (-not $resolved.StartsWith($tempBase, [System.StringComparison]::OrdinalIgnoreCase)) {
-      throw "Refusing to clean outside the temporary directory: $resolved"
-    }
-    Remove-Item -LiteralPath $resolved -Recurse -Force
+function Assert-Equal([object]$Expected, [object]$Actual, [string]$Label) {
+  if ([string]$Expected -ne [string]$Actual) {
+    throw "$Label mismatch. Expected '$Expected'; found '$Actual'."
   }
 }
+
+function Assert-File([string]$Path, [string]$Label) {
+  Assert-True (Test-Path -LiteralPath $Path -PathType Leaf) "$Label is missing: $Path"
+}
+
+$package = Get-Content -Raw -LiteralPath $packagePath | ConvertFrom-Json
+$version = [string]$package.version
+Assert-True ($version -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') "package.json must contain a semantic release version."
+
+$scriptNames = @($package.scripts.PSObject.Properties.Name)
+Assert-True ($scriptNames -notcontains "make:dist") "The retired ZIP make:dist command must not be published."
+Assert-Equal "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1" $package.scripts.'native:installer' "native:installer command"
+foreach ($releaseGate in @(
+  "privacy:scan",
+  "test:vault",
+  "test:crypto",
+  "test:legacy-migration",
+  "smoke",
+  "test:heuristics",
+  "test:installer-parity"
+)) {
+  Assert-True ($scriptNames -contains $releaseGate) "package.json is missing release gate '$releaseGate'."
+}
+
+Assert-Equal "native-dist" $package.build.directories.output "electron-builder output directory"
+Assert-True ($package.build.asar -eq $false) "The guarded builder requires asar=false so packaged contents can be verified."
+
+$windowsTargets = @($package.build.win.target | ForEach-Object { [string]$_ })
+Assert-True ($windowsTargets.Count -eq 1 -and $windowsTargets[0] -eq "nsis") "Windows packaging must produce only an NSIS installer."
+Assert-Equal 'Horizon-Setup.${ext}' $package.build.win.artifactName "Windows installer filename"
+
+Assert-True ($package.build.nsis.oneClick -eq $true) "NSIS oneClick must remain enabled."
+Assert-True ($package.build.nsis.perMachine -eq $false) "NSIS must remain a per-user install."
+Assert-True ($package.build.nsis.allowElevation -eq $true) "NSIS must permit elevation when Windows requires it."
+Assert-True ($package.build.nsis.createDesktopShortcut -eq $true) "The installer must create a desktop shortcut."
+Assert-True ($package.build.nsis.createStartMenuShortcut -eq $true) "The installer must create a Start menu shortcut."
+Assert-True ($package.build.nsis.runAfterFinish -eq $true) "The installer must offer to launch Horizon after setup."
+Assert-True ($package.build.nsis.deleteAppDataOnUninstall -eq $false) "Uninstall must preserve the user's local Horizon data."
+Assert-Equal "Horizon" $package.build.nsis.shortcutName "Installed shortcut name"
+
+$packagedPatterns = @($package.build.files | ForEach-Object { [string]$_ })
+foreach ($requiredPattern in @(
+  "dist/**/*",
+  "electron/**/*",
+  "public/horizon-os-icon.ico",
+  "public/horizon-os-icon.png",
+  "server.cjs",
+  "server/**/*",
+  "server/integrationStoreCrypto.cjs",
+  "server/starter-vault/.obsidian/app.json",
+  "package.json"
+)) {
+  Assert-True ($packagedPatterns -contains $requiredPattern) "electron-builder files is missing '$requiredPattern'."
+}
+
+Assert-File $builderPath "Guarded NSIS builder"
+$builderText = Get-Content -Raw -LiteralPath $builderPath
+$parseTokens = $null
+$parseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile($builderPath, [ref]$parseTokens, [ref]$parseErrors) | Out-Null
+Assert-True (@($parseErrors).Count -eq 0) "Guarded NSIS builder contains a PowerShell syntax error."
+foreach ($builderMarker in @(
+  "privacy:scan",
+  "test:vault",
+  "test:crypto",
+  "test:legacy-migration",
+  "smoke",
+  "test:heuristics",
+  "test:installer-parity",
+  "Assert-CleanWorkingTree",
+  "status --porcelain --untracked-files=all",
+  "Source build-info.json reports uncommitted source changes.",
+  "Packaged build-info.json reports uncommitted source changes.",
+  "dirty -isnot [bool]",
+  "Remove-GuardedOutput",
+  "Horizon-Setup.exe",
+  "--win",
+  "nsis",
+  ".obsidian\app.json",
+  "integrationStoreCrypto.cjs",
+  "Get-FileHash"
+)) {
+  Assert-True ($builderText.Contains($builderMarker)) "Guarded builder is missing required release check '$builderMarker'."
+}
+Assert-True (-not $builderText.Contains("Write-Warning")) "The release builder must fail, not warn, when source identity is dirty."
+
+$cleanStepIndex = $builderText.IndexOf('Step "Verifying clean release source"', [System.StringComparison]::Ordinal)
+$firstCleanCallIndex = $builderText.IndexOf('Assert-CleanWorkingTree $gitPath', $cleanStepIndex, [System.StringComparison]::Ordinal)
+$releaseGatesIndex = $builderText.IndexOf('Step "Running release gates"', [System.StringComparison]::Ordinal)
+$secondCleanCallIndex = $builderText.IndexOf('Assert-CleanWorkingTree $gitPath', $releaseGatesIndex, [System.StringComparison]::Ordinal)
+$cleanBuildIndex = $builderText.IndexOf('Step "Cleaning prior build output"', [System.StringComparison]::Ordinal)
+Assert-True ($cleanStepIndex -ge 0 -and $firstCleanCallIndex -gt $cleanStepIndex -and $firstCleanCallIndex -lt $releaseGatesIndex) "The clean-worktree gate must run before release tests."
+Assert-True ($secondCleanCallIndex -gt $releaseGatesIndex -and $secondCleanCallIndex -lt $cleanBuildIndex) "The clean-worktree gate must run again after tests and before building."
+
+foreach ($requiredSourceItem in @(
+  "server\integrationStoreCrypto.cjs",
+  "electron\legacyWindowsMigration.cjs",
+  "server\starter-vault\00_Index.md",
+  "server\starter-vault\AGENTS.md",
+  "server\starter-vault\HORIZON.md",
+  "server\starter-vault\.obsidian\app.json",
+  "server\starter-vault\00_System\manifests\dashboard.manifest.json",
+  "server\starter-vault\00_System\manifests\integrations.manifest.json",
+  "server\starter-vault\06_Integrations\index.md"
+)) {
+  Assert-File (Join-Path $dashboardRoot $requiredSourceItem) "Required installer source item '$requiredSourceItem'"
+}
+
+$retiredBundleRoot = Join-Path $dashboardRoot "dist-installer"
+$retiredBundleFiles = @()
+if (Test-Path -LiteralPath $retiredBundleRoot) {
+  $retiredBundleFiles = @(Get-ChildItem -LiteralPath $retiredBundleRoot -File -Force -Recurse)
+}
+Assert-True ($retiredBundleFiles.Count -eq 0) "Retired dist-installer payload files still exist."
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $dashboardRoot "scripts\make-distribution.ps1") -PathType Leaf)) "Retired make-distribution.ps1 still exists."
+
+Write-Host "Installer preflight passed for Horizon v$version (one-EXE NSIS release)." -ForegroundColor Green

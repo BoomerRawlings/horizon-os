@@ -59,6 +59,7 @@ type StartupSnapshot = {
 type SettingsContentPhase = "idle" | "leaving" | "entering";
 
 const APP_VERSION = String(packageMetadata.version || "unknown");
+const HORIZON_INSTALLER_URL = "https://github.com/BoomerRawlings/horizon-os/releases/latest/download/Horizon-Setup.exe";
 
 const settingsSections: Array<{ id: SettingsSectionId; label: string; icon: typeof SlidersHorizontal }> = [
   { id: "general", label: "General", icon: SlidersHorizontal },
@@ -569,9 +570,11 @@ export function SettingsPanel({
       const saved = saveUpdateCheckSnapshot(
         {
           checkState: "fetch_failed",
+          downloadUrl: updateSnapshot?.downloadUrl,
           fetchFailed: true,
           message: "Horizon could not reach the updater. Retry when the laptop is online.",
           supported: false,
+          updateMode: updateSnapshot?.updateMode,
           updateAvailable: false,
           version: APP_VERSION,
         },
@@ -586,6 +589,11 @@ export function SettingsPanel({
 
   async function applyUpdate() {
     if (!updateSnapshot?.updateAvailable) return;
+    if (updateSnapshot.updateMode === "installer") {
+      window.open(updateSnapshot.downloadUrl || HORIZON_INSTALLER_URL, "_blank", "noopener,noreferrer");
+      setMessage("Installer download opened. Close Horizon, then run Horizon-Setup.exe when the download finishes.");
+      return;
+    }
     setApplyingUpdate(true);
     setMessage("Installing update...");
     try {
@@ -625,20 +633,20 @@ export function SettingsPanel({
       return;
     }
     setSelectingVault(true);
-    setMessage("Choose the top-level folder created by Obsidian Sync...");
+    setMessage("Choose the top-level Horizon workspace or Obsidian vault folder...");
     try {
       const result = await window.horizonDesktop.chooseVault();
       if (result.canceled) {
-        setMessage("Vault selection canceled. The current vault is unchanged.");
+        setMessage("Workspace selection canceled. The current workspace is unchanged.");
       } else if (result.restarting) {
         setVaultPath(result.vaultPath);
-        setMessage("Vault connected. Horizon is restarting so every workspace uses it.");
+        setMessage("Workspace connected. Horizon is restarting so every screen uses it.");
       } else {
         setVaultPath(result.vaultPath);
-        setMessage("This vault is already active on this machine.");
+        setMessage("This workspace is already active on this machine.");
       }
     } catch {
-      setMessage("Horizon could not open the vault picker.");
+      setMessage("Horizon could not open the workspace picker.");
     } finally {
       setSelectingVault(false);
     }
@@ -800,11 +808,11 @@ export function SettingsPanel({
             </span>
           </div>
           <Toggle
-            checked={settings.privacy.codexCanParseCaptures}
-            description="Allow Codex to refine capture suggestions. Turn this off to use deterministic local rules only."
-            label="Assisted capture parsing"
+            checked={settings.privacy.openAiCanParseCaptures}
+            description="Opt in to sending the complete capture text, current date/time zone, and relative names of project/research notes (not note contents or your workspace path) to OpenAI. Local rules still run when this is off."
+            label="OpenAI-assisted capture parsing"
             onChange={(checked) =>
-              updateSettings({ ...settings, privacy: { ...settings.privacy, codexCanParseCaptures: checked } })
+              updateSettings({ ...settings, privacy: { ...settings.privacy, openAiCanParseCaptures: checked } })
             }
           />
           <Toggle
@@ -824,8 +832,8 @@ export function SettingsPanel({
           <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-sm font-medium text-white">Active Obsidian vault</div>
-                <div className="mt-1 break-all text-xs text-slate-500">{vaultPath || "Detecting your local vault..."}</div>
+                <div className="text-sm font-medium text-white">Active Horizon workspace</div>
+                <div className="mt-1 break-all text-xs text-slate-500">{vaultPath || "Detecting your local workspace..."}</div>
                 <div className="mt-2 text-xs leading-relaxed text-slate-400">Horizon reads this folder in place. The path is stored only on this computer.</div>
               </div>
               <button
@@ -835,13 +843,13 @@ export function SettingsPanel({
                 type="button"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
-                {selectingVault ? "Choosing..." : "Change vault"}
+                {selectingVault ? "Choosing..." : "Change workspace"}
               </button>
             </div>
           </div>
           <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4">
             <div className="text-sm font-medium text-white">Capture queue</div>
-            <div className="mt-1 text-xs text-slate-500">Captures save locally first, then wait for Codex parsing.</div>
+            <div className="mt-1 text-xs text-slate-500">Captures save locally first. Local rules process them unless you explicitly enable OpenAI-assisted parsing above.</div>
           </div>
         </SettingCard>
       );
@@ -933,6 +941,8 @@ export function SettingsPanel({
     }
 
     if (section === "updates") {
+      const installerMode = updateSnapshot?.updateMode === "installer";
+      const installerUrl = updateSnapshot?.downloadUrl || HORIZON_INSTALLER_URL;
       return (
         <div className="grid gap-4">
           <SettingCard title="Horizon OS">
@@ -941,13 +951,13 @@ export function SettingsPanel({
               <div>
                 <div className="text-lg font-semibold text-white">Horizon OS</div>
                 <div className="mt-1 text-xs text-slate-500">Horizon {APP_VERSION}</div>
-                <div className="mt-2 text-xs text-slate-400">Installed locally; update status is verified against the connected repository.</div>
+                <div className="mt-2 text-xs text-slate-400">Installed locally. Your workspace and sign-ins remain in place when Horizon is updated.</div>
               </div>
             </div>
           </SettingCard>
 
           <SettingCard title="Updates">
-            <div className="grid grid-cols-3 gap-3">
+            <div className={`grid gap-3 ${installerMode ? "grid-cols-2" : "grid-cols-3"}`}>
               <button
                 className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[rgba(var(--accent-rgb),0.32)] bg-[rgba(var(--accent-rgb),0.12)] px-4 text-sm text-white transition hover:bg-[rgba(var(--accent-rgb),0.2)]"
                 disabled={checkingUpdates}
@@ -959,55 +969,90 @@ export function SettingsPanel({
               </button>
               <button
                 className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.3)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={!updateSnapshot?.updateAvailable || Boolean(updateSnapshot?.dirty) || applyingUpdate}
+                disabled={!updateSnapshot?.updateAvailable || (!installerMode && Boolean(updateSnapshot?.dirty)) || applyingUpdate}
                 onClick={applyUpdate}
                 type="button"
               >
                 <DownloadCloud className="h-4 w-4" />
-                {applyingUpdate
-                  ? "Installing..."
-                  : updateSnapshot?.packageStale && !updateSnapshot?.sourceUpdateAvailable
-                    ? "Repair app and restart"
-                    : "Download, install, restart"}
+                {installerMode
+                  ? "Download Horizon-Setup.exe"
+                  : applyingUpdate
+                    ? "Installing..."
+                    : updateSnapshot?.packageStale && !updateSnapshot?.sourceUpdateAvailable
+                      ? "Repair app and restart"
+                      : "Download, install, restart"}
               </button>
-              <button
-                className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.3)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={restartingApp || checkingUpdates || applyingUpdate}
-                onClick={relaunchApp}
-                type="button"
-              >
-                <Play className="h-4 w-4" />
-                {restartingApp ? "Launching..." : "Launch Horizon"}
-              </button>
+              {!installerMode ? (
+                <button
+                  className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-4 text-sm text-slate-200 transition enabled:hover:border-[rgba(var(--accent-rgb),0.3)] enabled:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={restartingApp || checkingUpdates || applyingUpdate}
+                  onClick={relaunchApp}
+                  type="button"
+                >
+                  <Play className="h-4 w-4" />
+                  {restartingApp ? "Launching..." : "Launch Horizon"}
+                </button>
+              ) : null}
             </div>
             <div className="rounded-xl border border-white/8 bg-white/[0.025] p-4 text-sm text-slate-300">
               <div>{updateSnapshot?.message ?? "No update check has been recorded yet."}</div>
               {updateCheckTimeLabel(updateSnapshot) ? (
                 <div className="mt-1 text-xs text-slate-500">{updateCheckTimeLabel(updateSnapshot)}</div>
               ) : null}
+              <a
+                className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg border border-[rgba(var(--accent-rgb),0.3)] bg-[rgba(var(--accent-rgb),0.1)] px-3 text-xs font-medium text-sky-100 transition hover:bg-[rgba(var(--accent-rgb),0.17)]"
+                href={installerUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <DownloadCloud className="h-3.5 w-3.5" />
+                Download Horizon-Setup.exe directly
+              </a>
               {updateSnapshot ? (
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500">
-                  <div>Installed version: {updateSnapshot.packagedVersion || updateSnapshot.version || APP_VERSION}</div>
-                  <div>Source version: {updateSnapshot.sourceVersion || "unknown"}</div>
-                  <div>Status: {updateSnapshot.checkState?.replaceAll("_", " ") || "checked"}</div>
-                  <div>Current: {shortHash(updateSnapshot.current)}</div>
-                  <div>Latest: {shortHash(updateSnapshot.latest)}</div>
-                  <div>Installed build: {shortHash(updateSnapshot.packagedCommit)}</div>
-                  <div>Branch: {updateSnapshot.branch ?? "unknown"}</div>
-                  <div>Upstream: {updateSnapshot.upstream ?? "unknown"}</div>
+                <details className="mt-3 rounded-lg border border-white/8 bg-black/10 px-3 py-2 text-xs text-slate-500">
+                  <summary className="cursor-pointer text-slate-400">Technical update details</summary>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div>Installed version: {updateSnapshot.packagedVersion || updateSnapshot.version || APP_VERSION}</div>
+                    <div>Status: {updateSnapshot.checkState?.replaceAll("_", " ") || "checked"}</div>
+                    {installerMode ? (
+                      <>
+                        <div>Update method: Windows installer</div>
+                        <div>Download: Horizon-Setup.exe</div>
+                      </>
+                    ) : (
+                      <>
+                        <div>Source version: {updateSnapshot.sourceVersion || "unknown"}</div>
+                        <div>Current: {shortHash(updateSnapshot.current)}</div>
+                        <div>Latest: {shortHash(updateSnapshot.latest)}</div>
+                        <div>Installed build: {shortHash(updateSnapshot.packagedCommit)}</div>
+                        <div>Branch: {updateSnapshot.branch ?? "unknown"}</div>
+                        <div>Upstream: {updateSnapshot.upstream ?? "unknown"}</div>
+                      </>
+                    )}
+                  </div>
+                </details>
+              ) : null}
+              {installerMode && updateSnapshot?.updateAvailable ? (
+                <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-300/8 px-3 py-2 text-xs text-sky-100">
+                  Download Horizon-Setup.exe, close Horizon, then run the downloaded installer. Your workspace and saved connections stay in place.
                 </div>
               ) : null}
-              {updateSnapshot?.fetchFailed || updateSnapshot?.checkState === "unsupported" ? (
+              {installerMode && (updateSnapshot?.fetchFailed || updateSnapshot?.checkState === "unsupported") ? (
+                <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-xs text-amber-200">
+                  Horizon could not confirm whether a newer installer is available. You can retry or use the direct Horizon-Setup.exe download above.
+                </div>
+              ) : null}
+              {!installerMode && (updateSnapshot?.fetchFailed || updateSnapshot?.checkState === "unsupported") ? (
                 <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-xs text-amber-200">
                   This result is not an “up to date” confirmation. Horizon could not refresh the update source.
                 </div>
               ) : null}
-              {updateSnapshot?.dirty ? (
+              {!installerMode && updateSnapshot?.dirty ? (
                 <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-300/8 px-3 py-2 text-xs text-amber-200">
                   Local changes are present, so install is paused until the repo is clean.
                 </div>
               ) : null}
-              {updateSnapshot?.packageStale && !updateSnapshot?.dirty && !updateSnapshot?.fetchFailed ? (
+              {!installerMode && updateSnapshot?.packageStale && !updateSnapshot?.dirty && !updateSnapshot?.fetchFailed ? (
                 <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-300/8 px-3 py-2 text-xs text-sky-100">
                   The source checkout is newer than the packaged app currently on screen. Repair will rebuild the app, verify its build identity, and relaunch it.
                 </div>

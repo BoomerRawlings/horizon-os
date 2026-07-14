@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
@@ -41,7 +40,6 @@ import { Panel } from "../ui/Panel";
 
 type ReadingStatus = "to_read" | "skimming" | "read" | "annotated";
 type SortMode = "author" | "date" | "subject" | "reading" | "recent";
-type FocusedSortMode = "author" | "date" | "title" | "reading" | "recent";
 
 type ResearchPaper = {
   abstract: string;
@@ -130,6 +128,7 @@ type DeskPosition = { x: number; y: number; rotation: number; z: number };
 type DeskLayout = Record<string, DeskPosition>;
 type DeskSelection = { kind: "paper" | "idea"; path: string } | null;
 type PaperStack = { key: string; label: string; papers: ResearchPaper[] };
+type PaperConnection = { a: string; b: string };
 type DeskCamera = { scale: number; x: number; y: number };
 type DraftSticky = { text: string; x: number; y: number };
 type DeskContextMenu = {
@@ -143,10 +142,11 @@ type DeskContextMenu = {
 
 type DragState = {
   captureTarget: HTMLElement;
-  kind: "idea" | "stack";
+  kind: "idea" | "paper" | "stack";
   key: string;
   moved: boolean;
   origin: DeskPosition;
+  paperId?: string;
   pointerId: number;
   startX: number;
   startY: number;
@@ -167,6 +167,7 @@ type CameraDragState = {
 type ResearchConnectionLine = {
   active: boolean;
   id: string;
+  kind: "paper" | "sticky";
   x1: number;
   x2: number;
   y1: number;
@@ -181,6 +182,7 @@ type ResearchConnectionViewport = {
 
 const RESEARCH_DESK_LAYOUT_KEY = "horizon.research-desk-layout.v2";
 const RESEARCH_DESK_SORT_KEY = "horizon.research-desk-sort.v1";
+const RESEARCH_PAPER_CONNECTIONS_KEY = "horizon.research-paper-connections.v1";
 const READING_STATUS_LABELS: Record<ReadingStatus, string> = {
   to_read: "To read",
   skimming: "Skimming",
@@ -208,6 +210,10 @@ function stackDeskKey(mode: SortMode, key: string) {
   return `stack:${mode}:${key}`;
 }
 
+function paperDeskKey(id: string) {
+  return `paper:${id}`;
+}
+
 function normalizedPaperDoi(value: string) {
   return String(value || "")
     .trim()
@@ -221,6 +227,24 @@ function paperConnectionRef(paper: ResearchPaper) {
   if (doi && doi !== "unknown") return `doi:${doi}`;
   if (paper.zoteroKey) return `zotero:${paper.zoteroKey}`;
   return paper.path ? `vault:${paper.path.replace(/\\/g, "/")}` : "";
+}
+
+function paperLinkRef(paper: ResearchPaper) {
+  return paperConnectionRef(paper) || `id:${paper.id}`;
+}
+
+function paperMatchesLinkRef(paper: ResearchPaper, ref: string) {
+  return ref.startsWith("id:") ? paper.id === ref.slice(3) : paperMatchesConnectionRef(paper, ref);
+}
+
+function normalizedPaperLink(a: string, b: string): PaperConnection | null {
+  if (!a || !b || a === b) return null;
+  const [first, second] = [a, b].sort();
+  return { a: first, b: second };
+}
+
+function paperLinkId(connection: PaperConnection) {
+  return `${connection.a}::${connection.b}`;
 }
 
 function paperMatchesConnectionRef(paper: ResearchPaper, value: string) {
@@ -298,16 +322,6 @@ function sortedPapers(papers: ResearchPaper[], mode: SortMode) {
     return next.sort((a, b) => researchTimestamp(b.dateAdded) - researchTimestamp(a.dateAdded) || b.datePublished.localeCompare(a.datePublished) || a.title.localeCompare(b.title));
   }
   return next.sort((a, b) => a.primarySubject.localeCompare(b.primarySubject) || a.authorLabel.localeCompare(b.authorLabel));
-}
-
-function focusedStackPapers(papers: ResearchPaper[], mode: FocusedSortMode) {
-  const next = [...papers];
-  if (mode === "title") return next.sort((a, b) => a.title.localeCompare(b.title));
-  if (mode === "author") return next.sort((a, b) => a.authorLabel.localeCompare(b.authorLabel) || b.year.localeCompare(a.year));
-  if (mode === "date") return next.sort((a, b) => b.datePublished.localeCompare(a.datePublished) || a.title.localeCompare(b.title));
-  if (mode === "recent") return next.sort((a, b) => researchTimestamp(b.dateAdded) - researchTimestamp(a.dateAdded) || a.title.localeCompare(b.title));
-  const order: ReadingStatus[] = ["to_read", "skimming", "read", "annotated"];
-  return next.sort((a, b) => order.indexOf(a.readingStatus) - order.indexOf(b.readingStatus) || a.title.localeCompare(b.title));
 }
 
 function buildPaperStacks(papers: ResearchPaper[], mode: SortMode): PaperStack[] {
@@ -391,10 +405,25 @@ function storedDeskLayout() {
     const parsed = JSON.parse(localStorage.getItem(RESEARCH_DESK_LAYOUT_KEY) || "{}");
     if (!parsed || typeof parsed !== "object") return {};
     return Object.fromEntries(
-      Object.entries(parsed as DeskLayout).filter(([key]) => key.startsWith("idea:") || key.startsWith("stack:")),
+      Object.entries(parsed as DeskLayout).filter(([key]) => key.startsWith("idea:") || key.startsWith("paper:") || key.startsWith("stack:")),
     ) as DeskLayout;
   } catch {
     return {};
+  }
+}
+
+function storedPaperConnections(): PaperConnection[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RESEARCH_PAPER_CONNECTIONS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const unique = new Map<string, PaperConnection>();
+    for (const item of parsed) {
+      const connection = normalizedPaperLink(String(item?.a || ""), String(item?.b || ""));
+      if (connection) unique.set(paperLinkId(connection), connection);
+    }
+    return [...unique.values()];
+  } catch {
+    return [];
   }
 }
 
@@ -417,7 +446,10 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const [metadataFocus, setMetadataFocus] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>(() => storedSortMode());
   const [organizing, setOrganizing] = useState<"" | "gathering" | "settling">("");
+  const [arrangementRevision, setArrangementRevision] = useState(0);
+  const [paperConnections, setPaperConnections] = useState<PaperConnection[]>(() => storedPaperConnections());
   const [selection, setSelection] = useState<DeskSelection>(null);
+  const [heldIdeaPath, setHeldIdeaPath] = useState("");
   const [draggingKey, setDraggingKey] = useState("");
   const [dropTargetPaperId, setDropTargetPaperId] = useState("");
   const [camera, setCamera] = useState<DeskCamera>({ scale: 1, x: 0, y: 0 });
@@ -427,6 +459,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const [savingSticky, setSavingSticky] = useState(false);
   const [editingIdea, setEditingIdea] = useState<{ path: string; text: string } | null>(null);
   const [savingIdea, setSavingIdea] = useState(false);
+  const [connectionSavingIdeaPath, setConnectionSavingIdeaPath] = useState("");
   const [pendingDeleteIdea, setPendingDeleteIdea] = useState<ResearchIdea | null>(null);
   const [deletingIdea, setDeletingIdea] = useState(false);
   const [connectionViewport, setConnectionViewport] = useState<ResearchConnectionViewport>({ height: 0, lines: [], width: 0 });
@@ -436,20 +469,25 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   const [newSubjectName, setNewSubjectName] = useState("");
   const [subjectSaving, setSubjectSaving] = useState(false);
   const [stackCursors, setStackCursors] = useState<Record<string, number>>({});
-  const [focusedStackKey, setFocusedStackKey] = useState<string | null>(null);
-  const [focusedStackSort, setFocusedStackSort] = useState<FocusedSortMode>("author");
-  const [focusedStackClosing, setFocusedStackClosing] = useState(false);
+  const [expandedStackKeys, setExpandedStackKeys] = useState<string[]>([]);
   const deskRef = useRef<HTMLDivElement>(null);
   const readingSheetRef = useRef<HTMLElement>(null);
   const draftStickyRef = useRef<HTMLTextAreaElement>(null);
-  const focusedStackRef = useRef<HTMLElement>(null);
-  const focusedStackTriggerRef = useRef<HTMLElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const ideasRef = useRef<ResearchIdea[]>([]);
+  const connectionSavingRef = useRef(new Set<string>());
   const suppressStackClickRef = useRef("");
+  const suppressPaperClickRef = useRef("");
   const cameraDragRef = useRef<CameraDragState | null>(null);
   const organizeTimers = useRef<number[]>([]);
-  const focusedStackCloseTimer = useRef<number | null>(null);
-  const stackWheelTimes = useRef<Record<string, number>>({});
+  const viewportSizeRef = useRef({
+    height: typeof window === "undefined" ? 0 : window.innerHeight,
+    width: typeof window === "undefined" ? 0 : window.innerWidth,
+  });
+
+  useEffect(() => {
+    ideasRef.current = ideas;
+  }, [ideas]);
 
   function clearOrganizeTimers() {
     organizeTimers.current.forEach((timer) => window.clearTimeout(timer));
@@ -458,8 +496,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
   function placeIdeas(nextIdeas: ResearchIdea[], useStoredLayout = false) {
     const source = useStoredLayout ? storedDeskLayout() : layout;
-    const stackPositions = Object.fromEntries(Object.entries(source).filter(([key]) => key.startsWith("stack:"))) as DeskLayout;
-    const next = { ...stackPositions, ...buildIdeaLayout(nextIdeas, source) };
+    const deskPositions = Object.fromEntries(Object.entries(source).filter(([key]) => key.startsWith("paper:") || key.startsWith("stack:"))) as DeskLayout;
+    const next = { ...deskPositions, ...buildIdeaLayout(nextIdeas, source) };
     setLayout(next);
     persistLayout(next);
   }
@@ -521,101 +559,59 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     });
   }, [metadataFocus, papers, query, statusFilter, subject]);
 
-  const visibleIdeas = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    const paperFilterActive = subject !== "All subjects" || statusFilter !== "All stages" || metadataFocus;
-    return ideas.filter((idea) => {
-      const directMatch = Boolean(needle && [idea.topic, idea.body, idea.preview].join(" ").toLowerCase().includes(needle));
-      const followsVisiblePaper = (idea.connectedPaperRefs || []).some((ref) => visiblePapers.some((paper) => paperMatchesConnectionRef(paper, ref)));
-      if (!needle && !paperFilterActive) return true;
-      return directMatch || followsVisiblePaper;
-    });
-  }, [ideas, metadataFocus, query, statusFilter, subject, visiblePapers]);
+  // Paper filters are a finding tool. Sticky notes are desk objects and stay visible while
+  // a person searches for one or more papers to connect to the same thought.
+  const visibleIdeas = ideas;
 
   const deskStacks = useMemo(
     () => buildPaperStacks(visiblePapers, sortMode),
     [sortMode, visiblePapers],
   );
 
-  const focusedStack = useMemo(
-    () => deskStacks.find((stack) => stack.key === focusedStackKey) || null,
-    [deskStacks, focusedStackKey],
-  );
-
-  const focusedPapers = useMemo(
-    () => focusedStackPapers(focusedStack?.papers || [], focusedStackSort),
-    [focusedStack, focusedStackSort],
-  );
-
   const selectedPaper = selection?.kind === "paper" ? papers.find((paper) => paper.id === selection.path) || null : null;
   const selectedIdea = selection?.kind === "idea" ? ideas.find((idea) => idea.path === selection.path) || null : null;
+  const heldIdea = ideas.find((idea) => idea.path === heldIdeaPath) || null;
+  const heldIdeaConnectionSaving = Boolean(heldIdea && connectionSavingIdeaPath === heldIdea.path);
+  const heldIdeaAttachedToSelectedPaper = Boolean(heldIdea && selectedPaper
+    && (heldIdea.connectedPaperRefs || []).some((ref) => paperMatchesConnectionRef(selectedPaper, ref)));
   const selectedIdeaPapers = selectedIdea ? connectedPapersForIdea(selectedIdea, papers) : [];
   const missingMetadataCount = papers.filter((paper) => !paper.metadataComplete).length;
   const hasActiveFilter = Boolean(query.trim() || subject !== "All subjects" || statusFilter !== "All stages" || metadataFocus);
   const filteredStatusMessage = visiblePapers.length
     ? `Showing ${visiblePapers.length} matching ${visiblePapers.length === 1 ? "paper" : "papers"}.`
-    : visibleIdeas.length
-      ? `No matching papers · showing ${visibleIdeas.length} matching ${visibleIdeas.length === 1 ? "idea" : "ideas"}.`
-      : "No papers match the active filters.";
+    : "No papers match the active filters. Your sticky notes are still on the desk.";
   const selectedDeskStack = selectedPaper ? deskStacks.find((stack) => stack.papers.some((paper) => paper.id === selectedPaper.id)) || null : null;
   const selectedContextPapers = selectedPaper
-    ? (focusedStack?.papers.some((paper) => paper.id === selectedPaper.id)
-      ? focusedPapers
-      : selectedDeskStack?.papers || papers.filter((paper) => paper.primarySubject === selectedPaper.primarySubject))
+    ? (selectedDeskStack?.papers || papers.filter((paper) => paper.primarySubject === selectedPaper.primarySubject))
     : [];
   const selectedContextPosition = selectedPaper ? selectedContextPapers.findIndex((paper) => paper.id === selectedPaper.id) + 1 : 0;
-  const selectedContextLabel = focusedStack?.papers.some((paper) => paper.id === selectedPaper?.id)
-    ? focusedStack.label
-    : selectedDeskStack?.label || selectedPaper?.primarySubject || "";
+  const selectedContextLabel = selectedDeskStack?.label || selectedPaper?.primarySubject || "";
 
   useLayoutEffect(() => {
     if (readingSheetRef.current) readingSheetRef.current.scrollTop = 0;
   }, [selection?.kind, selection?.path]);
 
   useEffect(() => {
-    if (!focusedStackKey || focusedStack) return;
-    if (focusedStackCloseTimer.current) window.clearTimeout(focusedStackCloseTimer.current);
-    setFocusedStackClosing(false);
-    setFocusedStackKey(null);
-  }, [focusedStack, focusedStackKey]);
-
-  useEffect(() => {
     if (loading) return;
     const visiblePaperIds = new Set(visiblePapers.map((paper) => paper.id));
     const visibleIdeaPaths = new Set(visibleIdeas.map((idea) => idea.path));
     const firstPaper = deskStacks[0]?.papers[0];
-    const firstIdea = visibleIdeas[0];
+    const firstIdea = heldIdea || visibleIdeas[0];
     setSelection((current) => {
       if (current?.kind === "paper" && visiblePaperIds.has(current.path)) return current;
       if (current?.kind === "idea" && visibleIdeaPaths.has(current.path)) return current;
       return firstPaper ? { kind: "paper", path: firstPaper.id } : firstIdea ? { kind: "idea", path: firstIdea.path } : null;
     });
-  }, [deskStacks, loading, visibleIdeas, visiblePapers]);
-
-  useEffect(() => {
-    if (!focusedStackKey || focusedStackClosing) return;
-    const frame = window.requestAnimationFrame(() => {
-      const selected = focusedStackRef.current?.querySelector<HTMLButtonElement>(".research-focused-paper.is-selected");
-      const grid = focusedStackRef.current?.querySelector<HTMLElement>(".research-focused-stack-grid");
-      if (selected && grid) {
-        selected.focus({ preventScroll: true });
-        const selectedRect = selected.getBoundingClientRect();
-        const gridRect = grid.getBoundingClientRect();
-        grid.scrollTop += selectedRect.top - gridRect.top - Math.max(0, (gridRect.height - selectedRect.height) / 2);
-      } else {
-        focusedStackRef.current?.focus({ preventScroll: true });
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [focusedStackClosing, focusedStackKey, focusedStackSort]);
+  }, [deskStacks, heldIdea, loading, visibleIdeas, visiblePapers]);
 
   useLayoutEffect(() => {
     const desk = deskRef.current;
-    if (!desk || focusedStackKey) {
+    if (!desk) {
       setConnectionViewport({ height: 0, lines: [], width: 0 });
       return undefined;
     }
     let frame = 0;
+    let resizeFrame = 0;
     const updateLines = () => {
       const deskRect = desk.getBoundingClientRect();
       const ideaElements = new Map(
@@ -631,14 +627,17 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           .map((element) => [element.dataset.researchStackKey || "", element] as const),
       );
       const lines: ResearchConnectionLine[] = [];
+      const elementForPaper = (paper: ResearchPaper) => {
+        const stack = deskStacks.find((candidate) => candidate.papers.some((item) => item.id === paper.id));
+        return paperElements.get(paper.id) || (stack ? stackElements.get(stack.key) : null);
+      };
       for (const idea of visibleIdeas) {
         const ideaElement = ideaElements.get(idea.path);
         if (!ideaElement) continue;
         const ideaRect = ideaElement.getBoundingClientRect();
         const connectedPapers = connectedPapersForIdea(idea, visiblePapers);
         connectedPapers.forEach((paper, index) => {
-          const stack = deskStacks.find((candidate) => candidate.papers.some((item) => item.id === paper.id));
-          const target = paperElements.get(paper.id) || (stack ? stackElements.get(stack.key) : null);
+          const target = elementForPaper(paper);
           if (!target) return;
           const targetRect = target.getBoundingClientRect();
           const x1 = ideaRect.left + ideaRect.width / 2 - deskRect.left;
@@ -650,11 +649,36 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
             active: (selection?.kind === "idea" && selection.path === idea.path)
               || (selection?.kind === "paper" && selection.path === paper.id),
             id: `${idea.path}:${paperConnectionRef(paper)}`,
+            kind: "sticky",
             x1,
             x2,
             y1,
             y2,
           });
+        });
+      }
+      for (const connection of paperConnections) {
+        const sourcePaper = visiblePapers.find((paper) => paperMatchesLinkRef(paper, connection.a));
+        const targetPaper = visiblePapers.find((paper) => paperMatchesLinkRef(paper, connection.b));
+        if (!sourcePaper || !targetPaper) continue;
+        const sourceElement = elementForPaper(sourcePaper);
+        const targetElement = elementForPaper(targetPaper);
+        if (!sourceElement || !targetElement || sourceElement === targetElement) continue;
+        const sourceRect = sourceElement.getBoundingClientRect();
+        const targetRect = targetElement.getBoundingClientRect();
+        const x1 = sourceRect.left + sourceRect.width / 2 - deskRect.left;
+        const y1 = sourceRect.top + sourceRect.height / 2 - deskRect.top;
+        const x2 = targetRect.left + targetRect.width / 2 - deskRect.left;
+        const y2 = targetRect.top + targetRect.height / 2 - deskRect.top;
+        if (Math.hypot(x2 - x1, y2 - y1) < 28) continue;
+        lines.push({
+          active: selection?.kind === "paper" && (selection.path === sourcePaper.id || selection.path === targetPaper.id),
+          id: `paper:${paperLinkId(connection)}`,
+          kind: "paper",
+          x1,
+          x2,
+          y1,
+          y2,
         });
       }
       setConnectionViewport({ height: deskRect.height, lines, width: deskRect.width });
@@ -663,23 +687,86 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(updateLines);
     };
-    scheduleUpdate();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleUpdate) : null;
+    const handleDeskResize = () => scheduleUpdate();
+    const handleWindowResize = () => {
+      const nextViewport = { height: window.innerHeight, width: window.innerWidth };
+      const previousViewport = viewportSizeRef.current;
+      if (nextViewport.height === previousViewport.height && nextViewport.width === previousViewport.width) {
+        scheduleUpdate();
+        return;
+      }
+      viewportSizeRef.current = nextViewport;
+      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(() => {
+        const deskRect = desk.getBoundingClientRect();
+        const sheetRect = readingSheetRef.current?.getBoundingClientRect();
+        const usableLeft = deskRect.left + 16;
+        const usableRight = sheetRect && sheetRect.width > 0 && sheetRect.left > deskRect.left + 180
+          ? Math.min(deskRect.right - 16, sheetRect.left - 16)
+          : deskRect.right - 16;
+        const usableTop = deskRect.top + 52;
+        const usableBottom = deskRect.bottom - 52;
+        const stackElements = new Map(
+          [...desk.querySelectorAll<HTMLElement>("[data-research-stack-key]")]
+            .map((element) => [element.dataset.researchStackKey || "", element] as const),
+        );
+        setLayout((current) => {
+          let changed = false;
+          const next = { ...current };
+          for (const stack of deskStacks) {
+            const key = stackDeskKey(sortMode, stack.key);
+            const position = current[key];
+            const heading = stackElements.get(stack.key)?.querySelector<HTMLElement>(".research-paper-stack-heading");
+            if (!position || !heading) continue;
+            const headingRect = heading.getBoundingClientRect();
+            const worldLeft = deskRect.left + (headingRect.left - deskRect.left - camera.x) / camera.scale;
+            const worldTop = deskRect.top + (headingRect.top - deskRect.top - camera.y) / camera.scale;
+            const worldWidth = headingRect.width / camera.scale;
+            const worldHeight = headingRect.height / camera.scale;
+            const worldRight = worldLeft + worldWidth;
+            const worldBottom = worldTop + worldHeight;
+            const correctionX = worldWidth > usableRight - usableLeft
+              ? usableLeft - worldLeft
+              : worldLeft < usableLeft
+                ? usableLeft - worldLeft
+                : worldRight > usableRight
+                  ? usableRight - worldRight
+                  : 0;
+            const correctionY = worldHeight > usableBottom - usableTop
+              ? usableTop - worldTop
+              : worldTop < usableTop
+                ? usableTop - worldTop
+                : worldBottom > usableBottom
+                  ? usableBottom - worldBottom
+                  : 0;
+            if (!correctionX && !correctionY) continue;
+            next[key] = {
+              ...position,
+              x: position.x + correctionX,
+              y: position.y + correctionY,
+            };
+            changed = true;
+          }
+          if (changed) persistLayout(next);
+          return changed ? next : current;
+        });
+        scheduleUpdate();
+      });
+    };
+    handleDeskResize();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(handleDeskResize) : null;
     observer?.observe(desk);
-    window.addEventListener("resize", scheduleUpdate);
+    window.addEventListener("resize", handleWindowResize);
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
+      if (resizeFrame) window.cancelAnimationFrame(resizeFrame);
       observer?.disconnect();
-      window.removeEventListener("resize", scheduleUpdate);
+      window.removeEventListener("resize", handleWindowResize);
     };
-  }, [camera, deskStacks, focusedStackKey, layout, selection, stackCursors, visibleIdeas, visiblePapers]);
-
-  useEffect(() => () => {
-    if (focusedStackCloseTimer.current) window.clearTimeout(focusedStackCloseTimer.current);
-  }, []);
+  }, [camera, deskStacks, expandedStackKeys, layout, paperConnections, selection, stackCursors, visibleIdeas, visiblePapers]);
 
   useEffect(() => {
-    if (!isActive || focusedStackKey) return;
+    if (!isActive) return;
     const pressed = new Set<string>();
     let frame = 0;
     const isTypingTarget = (target: EventTarget | null) =>
@@ -730,7 +817,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       window.removeEventListener("keyup", onKeyUp);
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [focusedStackKey, isActive]);
+  }, [isActive]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -747,8 +834,10 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         setDuplicateReviewOpen(false);
       } else if (subjectManagerOpen) {
         setSubjectManagerOpen(false);
-      } else if (focusedStackKey) {
-        closeFocusedStack();
+      } else if (expandedStackKeys.length) {
+        setExpandedStackKeys([]);
+        setArrangementRevision((current) => current + 1);
+        setMessage("Open paper piles restacked.");
       } else if (draftSticky) {
         setDraftSticky(null);
       } else {
@@ -760,7 +849,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     };
     window.addEventListener("keydown", closeTopSurface, true);
     return () => window.removeEventListener("keydown", closeTopSurface, true);
-  }, [contextMenu, draftSticky, duplicateReviewOpen, editingIdea, focusedStackKey, isActive, pendingDeleteIdea, subjectManagerOpen]);
+  }, [contextMenu, draftSticky, duplicateReviewOpen, editingIdea, expandedStackKeys, isActive, pendingDeleteIdea, subjectManagerOpen]);
 
   useEffect(() => {
     const closeContextMenu = (event: PointerEvent) => {
@@ -774,6 +863,40 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
 
   function persistLayout(next: DeskLayout) {
     try { localStorage.setItem(RESEARCH_DESK_LAYOUT_KEY, JSON.stringify(next)); } catch { /* local storage is optional */ }
+  }
+
+  function persistPaperConnections(next: PaperConnection[]) {
+    try { localStorage.setItem(RESEARCH_PAPER_CONNECTIONS_KEY, JSON.stringify(next)); } catch { /* local storage is optional */ }
+  }
+
+  function togglePaperConnection(sourcePaper: ResearchPaper, targetPaper: ResearchPaper) {
+    const connection = normalizedPaperLink(paperLinkRef(sourcePaper), paperLinkRef(targetPaper));
+    if (!connection) return;
+    const id = paperLinkId(connection);
+    setPaperConnections((current) => {
+      const exists = current.some((item) => paperLinkId(item) === id);
+      const next = exists ? current.filter((item) => paperLinkId(item) !== id) : [...current, connection];
+      persistPaperConnections(next);
+      setMessage(exists
+        ? `Disconnected ${sourcePaper.title} from ${targetPaper.title}.`
+        : `Connected ${sourcePaper.title} to ${targetPaper.title}. Drag either paper onto the other again to disconnect.`);
+      return next;
+    });
+  }
+
+  function removePaperConnections(paper: ResearchPaper) {
+    const ref = paperLinkRef(paper);
+    setPaperConnections((current) => {
+      const next = current.filter((item) => item.a !== ref && item.b !== ref);
+      persistPaperConnections(next);
+      setMessage(next.length === current.length ? "This paper has no paper-to-paper links." : `Removed ${current.length - next.length} paper connection${current.length - next.length === 1 ? "" : "s"}.`);
+      return next;
+    });
+  }
+
+  function paperConnectionCount(paper: ResearchPaper) {
+    const ref = paperLinkRef(paper);
+    return paperConnections.filter((item) => item.a === ref || item.b === ref).length;
   }
 
   function deskPoint(clientX: number, clientY: number): Pick<DraftSticky, "x" | "y"> | null {
@@ -799,76 +922,42 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setSelection({ kind: "paper", path: nextPaper.id });
   }
 
-  function handleStackWheel(event: ReactWheelEvent<HTMLElement>, stack: PaperStack) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!event.deltaY && !event.deltaX) return;
-    const now = performance.now();
-    if (now - (stackWheelTimes.current[stack.key] || 0) < 140) return;
-    stackWheelTimes.current[stack.key] = now;
-    cycleStack(stack, (event.deltaY || event.deltaX) > 0 ? 1 : -1);
+  function stackExpansionKey(stack: PaperStack) {
+    return stackDeskKey(sortMode, stack.key);
   }
 
-  function handleFocusedPaperKey(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
-    if (!focusedStack || !focusedPapers.length) return;
-    const grid = event.currentTarget.parentElement;
-    const itemWidth = event.currentTarget.getBoundingClientRect().width;
-    const columns = grid ? Math.max(1, Math.floor((grid.clientWidth + 11) / (itemWidth + 11))) : 1;
-    let nextIndex = index;
-    if (event.key === "ArrowLeft") nextIndex -= 1;
-    else if (event.key === "ArrowRight") nextIndex += 1;
-    else if (event.key === "ArrowUp") nextIndex -= columns;
-    else if (event.key === "ArrowDown") nextIndex += columns;
-    else if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = focusedPapers.length - 1;
-    else return;
-    event.preventDefault();
-    nextIndex = clamp(nextIndex, 0, focusedPapers.length - 1);
-    selectPaper(focusedPapers[nextIndex], focusedStack);
-    window.requestAnimationFrame(() => {
-      const buttons = focusedStackRef.current?.querySelectorAll<HTMLButtonElement>(".research-focused-paper");
-      buttons?.[nextIndex]?.focus({ preventScroll: false });
-    });
+  function stackIsExpanded(stack: PaperStack) {
+    return expandedStackKeys.includes(stackExpansionKey(stack));
   }
 
-  function openFocusedStack(stack: PaperStack, trigger?: HTMLElement | null) {
-    if (focusedStackCloseTimer.current) window.clearTimeout(focusedStackCloseTimer.current);
-    focusedStackCloseTimer.current = null;
-    focusedStackTriggerRef.current = trigger || focusedStackTriggerRef.current;
-    setFocusedStackClosing(false);
-    setFocusedStackKey(stack.key);
+  function toggleStackExpansion(stack: PaperStack) {
+    const key = stackExpansionKey(stack);
+    const opening = !expandedStackKeys.includes(key);
+    setExpandedStackKeys((current) => opening ? [...current, key] : current.filter((item) => item !== key));
+    setArrangementRevision((current) => current + 1);
     setSubjectManagerOpen(false);
     setDuplicateReviewOpen(false);
     const currentPaper = selection?.kind === "paper" ? stack.papers.find((paper) => paper.id === selection.path) : null;
     const paper = currentPaper || stack.papers[stackCursor(stack)];
     if (paper) setSelection({ kind: "paper", path: paper.id });
-  }
-
-  function closeFocusedStack(returnFocus = true) {
-    if (!focusedStackKey || focusedStackClosing) return;
-    setFocusedStackClosing(true);
-    focusedStackCloseTimer.current = window.setTimeout(() => {
-      setFocusedStackKey(null);
-      setFocusedStackClosing(false);
-      focusedStackCloseTimer.current = null;
-      if (returnFocus) window.requestAnimationFrame(() => focusedStackTriggerRef.current?.focus({ preventScroll: true }));
-    }, 170);
+    setMessage(opening
+      ? `${stack.label} spread into ${stack.papers.length} visible ${stack.papers.length === 1 ? "paper" : "papers"}. Other piles stay where they are.`
+      : `${stack.label} restacked.`);
   }
 
   function fitDesk() {
     const rect = deskRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const usableWidth = rect.width * (rect.width < 1100 ? 0.54 : 0.64);
-    const columns = clamp(Math.floor(usableWidth / 190), 2, 5);
-    const rows = Math.max(1, Math.ceil(deskStacks.length / columns));
-    const contentHeight = 76 + rows * 218;
-    const scale = clamp(Math.min(1, (rect.height - 34) / contentHeight), 0.55, 1);
+    const grid = deskRef.current?.querySelector<HTMLElement>(".research-stack-grid");
+    const contentHeight = Math.max(260, (grid?.scrollHeight || 0) + 74);
+    const contentWidth = Math.max(grid?.clientWidth || 0, grid?.scrollWidth || 0);
+    const widthScale = grid?.clientWidth && contentWidth ? grid.clientWidth / contentWidth : 1;
+    const scale = clamp(Math.min(1, (rect.height - 42) / contentHeight, widthScale), 0.45, 1);
     setCamera({ scale, x: 0, y: 0 });
-    setMessage(`Desk fitted to ${deskStacks.length} ${deskStacks.length === 1 ? "stack" : "stacks"}.`);
+    setMessage(`Desk fitted to ${deskStacks.length} ${deskStacks.length === 1 ? "pile" : "piles"}.`);
   }
 
   function showAllPapers(nextMessage = "Showing all papers.") {
-    if (focusedStackKey) closeFocusedStack(false);
     setQuery("");
     setSubject("All subjects");
     setStatusFilter("All stages");
@@ -927,7 +1016,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const localY = event.clientY - rect.top;
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
     setCamera((current) => {
-      const scale = clamp(current.scale * Math.exp(-delta * 0.0014), 0.55, 2.5);
+      const scale = clamp(current.scale * Math.exp(-delta * 0.0014), 0.45, 4);
       const worldX = (localX - current.x) / current.scale;
       const worldY = (localY - current.y) / current.scale;
       const xLimit = Math.max(420, rect.width * Math.max(0.65, scale - 0.35));
@@ -1062,6 +1151,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         return next;
       });
       setSelection({ kind: "idea", path: idea.path });
+      setHeldIdeaPath(idea.path);
       setDraftSticky(null);
       setMessage(data.message || "Sticky note saved to Research Ideas.");
     } catch {
@@ -1084,6 +1174,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setContextMenu(null);
     setPendingDeleteIdea(null);
     setSelection({ kind: "idea", path: idea.path });
+    setHeldIdeaPath(idea.path);
     setEditingIdea({ path: idea.path, text: idea.body || idea.preview || idea.topic });
   }
 
@@ -1096,7 +1187,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const data = await response.json();
     if (!response.ok || !data?.idea) throw new Error(data?.message || "Sticky update failed");
     const nextIdea = data.idea as ResearchIdea;
-    setIdeas((current) => current.map((item) => item.path === nextIdea.path ? nextIdea : item));
+    const nextIdeas = ideasRef.current.map((item) => item.path === nextIdea.path ? nextIdea : item);
+    ideasRef.current = nextIdeas;
+    setIdeas(nextIdeas);
     return { idea: nextIdea, message: String(data.message || "Sticky note updated.") };
   }
 
@@ -1116,30 +1209,50 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   }
 
   async function attachIdeaToPaper(idea: ResearchIdea, paper: ResearchPaper) {
+    if (connectionSavingRef.current.has(idea.path)) {
+      setMessage("Finish the current sticky connection before adding another paper.");
+      return;
+    }
     const ref = paperConnectionRef(paper);
     if (!ref) {
       setMessage("That paper does not have a stable library reference yet.");
       return;
     }
-    if ((idea.connectedPaperRefs || []).some((item) => paperMatchesConnectionRef(paper, item))) {
+    const currentIdea = ideasRef.current.find((item) => item.path === idea.path) || idea;
+    if ((currentIdea.connectedPaperRefs || []).some((item) => paperMatchesConnectionRef(paper, item))) {
       setMessage(`This sticky is already attached to ${paper.title}.`);
       return;
     }
+    connectionSavingRef.current.add(idea.path);
+    setConnectionSavingIdeaPath(idea.path);
     try {
-      const result = await patchIdea(idea, { connectedPaperRefs: [...(idea.connectedPaperRefs || []), ref] });
+      const result = await patchIdea(currentIdea, { connectedPaperRefs: [...(currentIdea.connectedPaperRefs || []), ref] });
       setMessage(`Sticky attached to ${paper.title}. ${result.idea.connectedPaperRefs.length} connected ${result.idea.connectedPaperRefs.length === 1 ? "paper" : "papers"}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "That paper connection could not be saved.");
+    } finally {
+      connectionSavingRef.current.delete(idea.path);
+      setConnectionSavingIdeaPath((current) => current === idea.path ? "" : current);
     }
   }
 
   async function detachIdeaFromPaper(idea: ResearchIdea, paper: ResearchPaper) {
-    const nextRefs = (idea.connectedPaperRefs || []).filter((ref) => !paperMatchesConnectionRef(paper, ref));
+    if (connectionSavingRef.current.has(idea.path)) {
+      setMessage("Finish the current sticky connection before removing another paper.");
+      return;
+    }
+    const currentIdea = ideasRef.current.find((item) => item.path === idea.path) || idea;
+    const nextRefs = (currentIdea.connectedPaperRefs || []).filter((ref) => !paperMatchesConnectionRef(paper, ref));
+    connectionSavingRef.current.add(idea.path);
+    setConnectionSavingIdeaPath(idea.path);
     try {
-      await patchIdea(idea, { connectedPaperRefs: nextRefs });
+      await patchIdea(currentIdea, { connectedPaperRefs: nextRefs });
       setMessage(`Sticky detached from ${paper.title}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "That paper connection could not be removed.");
+    } finally {
+      connectionSavingRef.current.delete(idea.path);
+      setConnectionSavingIdeaPath((current) => current === idea.path ? "" : current);
     }
   }
 
@@ -1162,6 +1275,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         return next;
       });
       setSelection((current) => current?.kind === "idea" && current.path === idea.path ? null : current);
+      setHeldIdeaPath((current) => current === idea.path ? "" : current);
       setEditingIdea((current) => current?.path === idea.path ? null : current);
       setPendingDeleteIdea(null);
       setMessage(data.message || "Sticky note deleted.");
@@ -1172,9 +1286,14 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     }
   }
 
-  function organizeDesk(nextMode = sortMode) {
+  function organizeDesk(nextMode = sortMode, preservePaperPositions = false) {
     clearOrganizeTimers();
-    const gathered: DeskLayout = {};
+    setExpandedStackKeys([]);
+    setArrangementRevision((current) => current + 1);
+    const paperPositions = preservePaperPositions
+      ? Object.fromEntries(Object.entries(layout).filter(([key]) => key.startsWith("paper:"))) as DeskLayout
+      : {};
+    const gathered: DeskLayout = { ...paperPositions };
     ideas.forEach((idea, index) => {
       gathered[ideaDeskKey(idea.path)] = { x: 0.5, y: 0.64, rotation: index % 2 ? 2 : -2, z: 1200 + index };
     });
@@ -1184,7 +1303,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     setMessage("Gathering the papers...");
 
     organizeTimers.current.push(window.setTimeout(() => {
-      const organized = buildIdeaLayout(ideas);
+      const organized = { ...paperPositions, ...buildIdeaLayout(ideas) };
       setOrganizing("settling");
       setLayout(organized);
       persistLayout(organized);
@@ -1196,7 +1315,14 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   function changeSort(nextMode: SortMode) {
     setSortMode(nextMode);
     localStorage.setItem(RESEARCH_DESK_SORT_KEY, nextMode);
-    organizeDesk(nextMode);
+    organizeDesk(nextMode, true);
+  }
+
+  function restackOpenPiles() {
+    if (!expandedStackKeys.length) return;
+    setExpandedStackKeys([]);
+    setArrangementRevision((current) => current + 1);
+    setMessage("Open paper piles restacked.");
   }
 
   function bringForward(key: string, fallback?: DeskPosition) {
@@ -1235,7 +1361,13 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     return true;
   }
 
-  function beginDrag(event: ReactPointerEvent<HTMLElement>, key: string, kind: DragState["kind"] = "idea", fallback?: DeskPosition) {
+  function paperClickWasDrag(key: string) {
+    if (suppressPaperClickRef.current !== key) return false;
+    suppressPaperClickRef.current = "";
+    return true;
+  }
+
+  function beginDrag(event: ReactPointerEvent<HTMLElement>, key: string, kind: DragState["kind"] = "idea", fallback?: DeskPosition, paperId?: string) {
     if (event.button !== 0 || !deskRef.current) return;
     const position = layout[key] || fallback;
     if (!position) return;
@@ -1246,6 +1378,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       key,
       moved: false,
       origin: position,
+      paperId,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -1260,11 +1393,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     bringForward(key, position);
   }
 
-  function paperAtPoint(clientX: number, clientY: number) {
+  function paperAtPoint(clientX: number, clientY: number, excludePaperId = "") {
     for (const element of document.elementsFromPoint(clientX, clientY)) {
       const paperElement = element.closest<HTMLElement>("[data-research-paper-id]");
       const id = paperElement?.dataset.researchPaperId;
-      if (!id) continue;
+      if (!id || id === excludePaperId) continue;
       const paper = papers.find((item) => item.id === id);
       if (paper) return paper;
     }
@@ -1281,7 +1414,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       drag.moved = true;
       try { drag.captureTarget.setPointerCapture(event.pointerId); } catch { /* Drag still works if pointer capture is unavailable. */ }
     }
-    const targetPaper = drag.kind === "idea" ? paperAtPoint(event.clientX, event.clientY) : null;
+    const targetPaper = drag.kind === "idea" || drag.kind === "paper"
+      ? paperAtPoint(event.clientX, event.clientY, drag.paperId)
+      : null;
     setDropTargetPaperId((current) => current === (targetPaper?.id || "") ? current : targetPaper?.id || "");
     const rect = desk.getBoundingClientRect();
     const now = performance.now();
@@ -1291,10 +1426,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
     drag.lastAt = now;
-    const x = drag.kind === "stack"
+    const usesPixelOffset = drag.kind === "stack" || drag.kind === "paper";
+    const x = usesPixelOffset
       ? clamp(drag.origin.x + (event.clientX - drag.startX) / camera.scale, -rect.width * 0.72, rect.width * 0.72)
       : clamp(drag.origin.x + (event.clientX - drag.startX) / (rect.width * camera.scale), 0.05, 0.94);
-    const y = drag.kind === "stack"
+    const y = usesPixelOffset
       ? clamp(drag.origin.y + (event.clientY - drag.startY) / camera.scale, -rect.height * 0.72, rect.height * 0.72)
       : clamp(drag.origin.y + (event.clientY - drag.startY) / (rect.height * camera.scale), 0.09, 0.91);
     setLayout((current) => ({ ...current, [drag.key]: { ...(current[drag.key] || drag.origin), x, y } }));
@@ -1315,12 +1451,17 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
     const drag = dragRef.current;
     const desk = deskRef.current;
     if (!drag || drag.pointerId !== event.pointerId || !desk) return;
-    if (drag.kind === "stack") {
+    if (drag.kind === "stack" || drag.kind === "paper") {
       if (drag.moved) {
-        suppressStackClickRef.current = drag.key;
-        setMessage("Stack position saved. Use Stack desk to reset the arrangement.");
+        if (drag.kind === "stack") suppressStackClickRef.current = drag.key;
+        else suppressPaperClickRef.current = drag.key;
+        const sourcePaper = drag.paperId ? papers.find((paper) => paper.id === drag.paperId) || null : null;
+        const dropPaper = drag.kind === "paper" ? paperAtPoint(event.clientX, event.clientY, drag.paperId) : null;
+        if (sourcePaper && dropPaper) togglePaperConnection(sourcePaper, dropPaper);
+        else setMessage(drag.kind === "paper" ? "Paper position saved on this desk. Drag it onto another paper to connect them." : "Stack position saved. Use Stack desk to reset the arrangement.");
         window.setTimeout(() => {
-          if (suppressStackClickRef.current === drag.key) suppressStackClickRef.current = "";
+          if (drag.kind === "stack" && suppressStackClickRef.current === drag.key) suppressStackClickRef.current = "";
+          if (drag.kind === "paper" && suppressPaperClickRef.current === drag.key) suppressPaperClickRef.current = "";
         }, 0);
       }
       setLayout((current) => {
@@ -1505,6 +1646,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
   function selectIdea(idea: ResearchIdea) {
     const key = ideaDeskKey(idea.path);
     setSelection({ kind: "idea", path: idea.path });
+    setHeldIdeaPath(idea.path);
     bringForward(key);
   }
 
@@ -1587,8 +1729,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
       ) : null}
 
       <div
-        className={`research-desk-canvas research-desk-${organizing || "resting"} ${cameraDragging ? "research-desk-panning" : ""}`}
-        aria-label="Research desk canvas. Drag paper stacks to arrange them. Drag the empty desk or use W, A, S, and D to pan. Use the scroll wheel to zoom."
+        className={`research-desk-canvas research-desk-${organizing || "resting"} ${camera.scale >= 2.5 ? "research-desk-zoom-detail" : camera.scale >= 1.55 ? "research-desk-zoom-close" : camera.scale >= 0.9 ? "research-desk-zoom-reading" : "research-desk-zoom-overview"} ${cameraDragging ? "research-desk-panning" : ""}`}
+        aria-label="Research desk canvas. Drag stacks or individual papers to arrange them. Drop one paper onto another to connect or disconnect them. Drag the empty desk or use W, A, S, and D to pan. Use the scroll wheel to zoom."
         onContextMenu={(event) => openDeskContextMenu(event, "canvas")}
         onDoubleClick={handleDeskDoubleClick}
         onPointerCancel={(event) => {
@@ -1618,7 +1760,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         </div>
         <div className="research-desk-hint">
           <Compass className="h-3.5 w-3.5" />
-          <span>Drag stacks to arrange · drag empty desk or use WASD to pan · wheel to zoom ({Math.round(camera.scale * 100)}%) · double-click for a sticky.</span>
+          <span>Double-click a pile to spread it · drag a paper anywhere · drop paper on paper to connect or disconnect · wheel to zoom ({Math.round(camera.scale * 100)}%).</span>
         </div>
 
         {loading ? <div className="research-desk-loading">Setting out the research desk...</div> : null}
@@ -1635,7 +1777,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
               const bend = Math.max(34, Math.abs(line.x2 - line.x1) * 0.42);
               const direction = line.x2 >= line.x1 ? 1 : -1;
               return (
-                <g className={line.active ? "is-active" : ""} key={line.id}>
+                <g className={`${line.kind === "paper" ? "is-paper-link" : "is-sticky-link"} ${line.active ? "is-active" : ""}`} key={line.id}>
                   <path d={`M ${line.x1} ${line.y1} C ${line.x1 + bend * direction} ${line.y1}, ${line.x2 - bend * direction} ${line.y2}, ${line.x2} ${line.y2}`} />
                   <circle cx={line.x2} cy={line.y2} r="3" />
                 </g>
@@ -1658,7 +1800,8 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
             const paper = stack.papers[cursor];
             const stackLayoutKey = stackDeskKey(sortMode, stack.key);
             const stackPosition = layout[stackLayoutKey] || { x: 0, y: 0, rotation: 0, z: 800 + stackIndex };
-            const visibleLayers = Math.min(4, Math.max(0, stack.papers.length - 1));
+            const expanded = stackIsExpanded(stack);
+            const visibleLayers = expanded ? 0 : Math.min(4, Math.max(0, stack.papers.length - 1));
             const stackKind = sortMode === "author"
               ? "Author range"
               : sortMode === "date"
@@ -1668,21 +1811,20 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                   : "Subject stack";
             return (
               <section
-                className={`research-paper-stack ${draggingKey === stackLayoutKey ? "research-paper-stack-dragging" : ""}`}
+                className={`research-paper-stack ${expanded ? "research-paper-stack-expanded" : ""} ${draggingKey === stackLayoutKey ? "research-paper-stack-dragging" : ""}`}
                 data-research-stack-key={stack.key}
-                key={stack.key}
+                key={`${arrangementRevision}:${stack.key}`}
                 onLostPointerCapture={() => {
                   if (dragRef.current?.key === stackLayoutKey) cancelDeskItemDrag();
                 }}
                 onPointerCancel={() => cancelDeskItemDrag()}
                 onPointerDown={(event) => {
                   const target = event.target instanceof Element ? event.target : null;
-                  if (target?.closest(".research-stack-cycle-controls, .research-paper-dogear")) return;
+                  if (target?.closest(".research-stack-cycle-controls, .research-paper-dogear, .research-spread-paper")) return;
                   beginDrag(event, stackLayoutKey, "stack", stackPosition);
                 }}
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
-                onWheel={(event) => handleStackWheel(event, stack)}
                 role="listitem"
                 style={{
                   "--stack-delay": `${Math.min(stackIndex * 24, 240)}ms`,
@@ -1692,15 +1834,27 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 } as CSSProperties}
               >
                 <button
-                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. Click to open. Drag to arrange, or use Shift plus arrow keys.`}
-                  aria-expanded={focusedStackKey === stack.key}
+                  aria-label={`${stack.label}, ${stack.papers.length} ${stack.papers.length === 1 ? "paper" : "papers"}. ${expanded ? "Press Enter or double-click to restack." : "Press Enter or double-click to spread every paper on the desk."} Drag to arrange, or use Shift plus arrow keys.`}
+                  aria-expanded={expanded}
                   className="research-paper-stack-heading"
                   onClick={(event) => {
                     if (stackClickWasDrag(stackLayoutKey)) return;
-                    openFocusedStack(stack, event.currentTarget);
+                    if (event.detail === 0) toggleStackExpansion(stack);
+                    else if (event.detail === 1) selectPaper(paper, stack);
+                  }}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleStackExpansion(stack);
                   }}
                   onKeyDown={(event) => {
-                    if (!event.shiftKey) return;
+                    if (!event.shiftKey) {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleStackExpansion(stack);
+                      }
+                      return;
+                    }
                     const step = event.altKey ? 8 : 20;
                     if (event.key === "ArrowLeft") nudgeStack(stackLayoutKey, stackPosition, -step, 0);
                     else if (event.key === "ArrowRight") nudgeStack(stackLayoutKey, stackPosition, step, 0);
@@ -1713,14 +1867,20 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 >
                   <span>{stack.label}</span>
                   <strong>{stack.papers.length} {stack.papers.length === 1 ? "paper" : "papers"}</strong>
-                  <small>{stackKind} · drag to arrange · click to open · {cursor + 1} of {stack.papers.length}</small>
+                  <small>{stackKind} · drag to arrange · {expanded ? "double-click to restack" : "double-click to spread"} · {cursor + 1} of {stack.papers.length}</small>
                 </button>
 
                 <div
-                  aria-label={`${stack.label} stack. Use left and right arrow keys or the mouse wheel to browse. Press Enter to select the front paper.`}
-                  className="research-paper-stack-cards"
-                  onDoubleClick={() => openFocusedStack(stack)}
+                  aria-label={expanded ? `${stack.label} spread with ${stack.papers.length} visible papers.` : `${stack.label} stack. Use left and right arrow keys to browse. Press Enter to select the front paper.`}
+                  className={`research-paper-stack-cards ${expanded ? "research-paper-stack-spread" : ""}`}
+                  onDoubleClick={(event) => {
+                    if (expanded) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleStackExpansion(stack);
+                  }}
                   onKeyDown={(event) => {
+                    if (expanded) return;
                     if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
                       event.preventDefault();
                       cycleStack(stack, -1);
@@ -1732,9 +1892,86 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                       selectPaper(paper, stack);
                     }
                   }}
-                  onWheel={(event) => handleStackWheel(event, stack)}
-                  tabIndex={0}
+                  tabIndex={expanded ? -1 : 0}
                 >
+                  {expanded ? stack.papers.map((spreadPaper, paperIndex) => {
+                    const paperLayoutKey = paperDeskKey(spreadPaper.id);
+                    const paperPosition = layout[paperLayoutKey] || { x: 0, y: 0, rotation: 0, z: 1000 + paperIndex };
+                    return (
+                    <article
+                      aria-label={`${spreadPaper.title}, ${spreadPaper.authorLabel}, ${spreadPaper.year}. Paper ${paperIndex + 1} of ${stack.papers.length} in the open ${stack.label} pile.`}
+                      className={`research-paper-card research-spread-paper ${paperPosition.x || paperPosition.y ? "research-paper-free-positioned" : ""} ${draggingKey === paperLayoutKey ? "research-desk-item-dragging" : ""} ${spreadPaper.metadataComplete ? "research-paper-card-complete" : "research-paper-card-incomplete"} ${spreadPaper.dogEared ? "research-paper-card-dog-eared" : ""} ${selection?.kind === "paper" && selection.path === spreadPaper.id ? "research-desk-item-selected" : ""} ${dropTargetPaperId === spreadPaper.id ? "research-paper-sticky-target" : ""}`}
+                      data-research-paper-id={spreadPaper.id}
+                      key={spreadPaper.id}
+                      onClick={() => {
+                        if (paperClickWasDrag(paperLayoutKey)) return;
+                        selectPaper(spreadPaper, stack);
+                      }}
+                      onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper: spreadPaper })}
+                      onDoubleClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        selectPaper(spreadPaper, stack);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          selectPaper(spreadPaper, stack);
+                        }
+                      }}
+                      onLostPointerCapture={() => {
+                        if (dragRef.current?.key === paperLayoutKey) cancelDeskItemDrag();
+                      }}
+                      onPointerCancel={() => cancelDeskItemDrag()}
+                      onPointerDown={(event) => {
+                        const target = event.target instanceof Element ? event.target : null;
+                        if (target?.closest(".research-paper-dogear")) return;
+                        event.stopPropagation();
+                        bringForward(stackLayoutKey, stackPosition);
+                        beginDrag(event, paperLayoutKey, "paper", paperPosition, spreadPaper.id);
+                      }}
+                      onPointerMove={moveDrag}
+                      onPointerUp={endDrag}
+                      role="button"
+                      style={{
+                        "--paper-index": paperIndex,
+                        "--subject-hue": subjectHue(spreadPaper.primarySubject),
+                        left: paperPosition.x,
+                        top: paperPosition.y,
+                        zIndex: paperPosition.z,
+                      } as CSSProperties}
+                      tabIndex={0}
+                    >
+                      <button
+                        aria-label={spreadPaper.dogEared ? `Remove dog-ear from ${spreadPaper.title}` : `Dog-ear ${spreadPaper.title}`}
+                        aria-pressed={spreadPaper.dogEared}
+                        className="research-paper-dogear"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void patchPaperState(spreadPaper, { dogEared: !spreadPaper.dogEared });
+                        }}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        title={spreadPaper.dogEared ? "Remove dog-ear" : "Dog-ear this paper"}
+                        type="button"
+                      >
+                        <Bookmark className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="research-paper-kicker" title={spreadPaper.authors.join("; ") || spreadPaper.authorLabel}>{spreadPaper.authorLabel} · {spreadPaper.year || "n.d."}</span>
+                      <strong>{spreadPaper.title}</strong>
+                      <span className="research-paper-title">{spreadPaper.summaryPreview || "No abstract or summary has been saved yet."}</span>
+                      <span className="research-paper-close-details">{readableInsights(spreadPaper.abstract || spreadPaper.summary || spreadPaper.citation) || "No longer summary is available for this paper."}</span>
+                      <span className="research-paper-close-metadata">
+                        <span>{spreadPaper.datePublished || "Date unknown"}</span>
+                        <span>{spreadPaper.doi && spreadPaper.doi !== "unknown" ? `DOI ${spreadPaper.doi}` : sourceLabel(spreadPaper.source)}</span>
+                      </span>
+                      <span className="research-paper-footer">
+                        <span className="research-paper-subject">{spreadPaper.primarySubject}</span>
+                        <span>{READING_STATUS_LABELS[spreadPaper.readingStatus]}</span>
+                      </span>
+                    </article>
+                    );
+                  }) : <>
                   {Array.from({ length: visibleLayers }, (_, layerIndex) => {
                     const layer = visibleLayers - layerIndex;
                     return (
@@ -1761,8 +1998,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     }}
                     onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper })}
                     onDoubleClick={(event) => {
+                      event.preventDefault();
                       event.stopPropagation();
-                      openFocusedStack(stack, event.currentTarget);
+                      toggleStackExpansion(stack);
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
@@ -1792,6 +2030,11 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     <span className="research-paper-kicker">{paper.authorLabel} · {paper.year || "n.d."}</span>
                     <strong>{paper.title}</strong>
                     <span className="research-paper-title">{paper.summaryPreview || "No abstract or summary has been saved yet."}</span>
+                    <span className="research-paper-close-details">{readableInsights(paper.abstract || paper.summary || paper.citation) || "No longer summary is available for this paper."}</span>
+                    <span className="research-paper-close-metadata">
+                      <span>{paper.datePublished || "Date unknown"}</span>
+                      <span>{paper.doi && paper.doi !== "unknown" ? `DOI ${paper.doi}` : sourceLabel(paper.source)}</span>
+                    </span>
                     <span className="research-paper-footer">
                       <span className="research-paper-subject">{paper.primarySubject}</span>
                       <span>{READING_STATUS_LABELS[paper.readingStatus]}</span>
@@ -1805,6 +2048,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                     </div>
                   ) : null}
                   <span className="research-stack-position">{cursor + 1} / {stack.papers.length}</span>
+                  </>}
                 </div>
               </section>
             );
@@ -1861,7 +2105,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
           return (
             <button
               aria-label={`Research idea ${idea.topic}. ${connectedPapers.length ? `Attached to ${connectedPapers.length} ${connectedPapers.length === 1 ? "paper" : "papers"}.` : "Not attached to a paper."} Double-click to edit.`}
-              className={`research-sticky-note research-desk-item ${connectedPapers.length ? "research-sticky-note-connected" : ""} ${selection?.kind === "idea" && selection.path === idea.path ? "research-desk-item-selected" : ""} ${draggingKey === key ? "research-desk-item-dragging research-sticky-attaching" : ""}`}
+              className={`research-sticky-note research-desk-item ${connectedPapers.length ? "research-sticky-note-connected" : ""} ${heldIdeaPath === idea.path ? "research-sticky-note-held" : ""} ${selection?.kind === "idea" && selection.path === idea.path ? "research-desk-item-selected" : ""} ${draggingKey === key ? "research-desk-item-dragging research-sticky-attaching" : ""}`}
               data-research-idea-path={idea.path}
               key={idea.path}
               onClick={() => selectIdea(idea)}
@@ -1877,6 +2121,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
               onPointerCancel={() => cancelDeskItemDrag()}
               onPointerDown={(event) => {
                 setSelection({ kind: "idea", path: idea.path });
+                setHeldIdeaPath(idea.path);
                 beginDrag(event, key);
               }}
               onPointerMove={moveDrag}
@@ -1928,91 +2173,13 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         ) : null}
         </div>
 
-        {!loading && !visiblePapers.length && !visibleIdeas.length ? (
-          <div className="research-desk-empty">
+        {!loading && !visiblePapers.length ? (
+          <div className={`research-desk-empty ${visibleIdeas.length ? "research-desk-empty-with-stickies" : ""}`}>
             <Search className="h-6 w-6" />
-            <strong>No matching papers</strong>
-            <span>Try a broader search or clear the active filters.</span>
-            <button onClick={() => showAllPapers()} type="button">Show all papers</button>
+            <strong>{hasActiveFilter ? "No matching papers" : "No papers on the desk yet"}</strong>
+            <span>{hasActiveFilter ? "Try a broader search or clear the active filters. Sticky notes remain available." : "Sync Zotero or add a research paper to begin."}</span>
+            {hasActiveFilter ? <button onClick={() => showAllPapers()} type="button">Show all papers</button> : null}
           </div>
-        ) : null}
-
-        {focusedStack ? (
-          <>
-            <button
-              aria-label={`Close ${focusedStack.label} stack`}
-              className={`research-stack-scrim ${focusedStackClosing ? "is-closing" : ""}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                closeFocusedStack();
-              }}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                closeFocusedStack();
-              }}
-              type="button"
-            />
-            <section
-              aria-label={`${focusedStack.label} focused stack`}
-              className={`research-focused-stack ${focusedStackClosing ? "is-closing" : ""}`}
-              ref={focusedStackRef}
-              tabIndex={-1}
-            >
-              <header className="research-focused-stack-header">
-                <div>
-                  <span><Layers3 className="h-3.5 w-3.5" /> Focused stack</span>
-                  <h3>{focusedStack.label}</h3>
-                  <p>{focusedPapers.length} {focusedPapers.length === 1 ? "paper" : "papers"}{hasActiveFilter ? " matching the current filters" : ""}</p>
-                </div>
-                <div className="research-focused-stack-actions">
-                  <label>
-                    <span className="sr-only">Sort papers within this stack</span>
-                    <select aria-label="Sort papers within this stack" onChange={(event) => setFocusedStackSort(event.target.value as FocusedSortMode)} value={focusedStackSort}>
-                      <option value="author">Author</option>
-                      <option value="title">Title</option>
-                      <option value="date">Published</option>
-                      <option value="reading">Reading stage</option>
-                      <option value="recent">Recently added</option>
-                    </select>
-                  </label>
-                  <button aria-label="Close focused stack" onClick={() => closeFocusedStack()} type="button"><X className="h-4 w-4" /></button>
-                </div>
-              </header>
-
-              <div aria-label={`${focusedStack.label} papers`} className="research-focused-stack-grid" role="listbox">
-                {focusedPapers.map((paper, index) => (
-                  <button
-                    aria-label={`${paper.title}, ${paper.authorLabel}, ${paper.year}`}
-                    aria-selected={selection?.kind === "paper" && selection.path === paper.id}
-                    className={`research-focused-paper ${selection?.kind === "paper" && selection.path === paper.id ? "is-selected" : ""} ${dropTargetPaperId === paper.id ? "research-paper-sticky-target" : ""}`}
-                    data-research-paper-id={paper.id}
-                    key={paper.id}
-                    onClick={() => selectPaper(paper, focusedStack)}
-                    onContextMenu={(event) => openDeskContextMenu(event, "paper", { paper })}
-                    onKeyDown={(event) => handleFocusedPaperKey(event, index)}
-                    role="option"
-                    style={{ "--subject-hue": subjectHue(paper.primarySubject) } as CSSProperties}
-                    type="button"
-                  >
-                    <span className="research-focused-paper-index">{String(index + 1).padStart(2, "0")}</span>
-                    <span className="research-paper-kicker">{paper.authorLabel} · {paper.year || "n.d."}</span>
-                    <strong>{paper.title}</strong>
-                    <span className="research-focused-paper-summary">{paper.summaryPreview || "No abstract or summary has been saved yet."}</span>
-                    <span className="research-paper-footer">
-                      <span>{sourceLabel(paper.source)}{paper.dogEared ? " · Dog-eared" : ""}</span>
-                      <span>{READING_STATUS_LABELS[paper.readingStatus]}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <footer className="research-focused-stack-footer">
-                <span>Click a paper to place it on the reading stand.</span>
-                <span>Esc or click outside to return to the desk.</span>
-              </footer>
-            </section>
-          </>
         ) : null}
 
         <aside className={`research-reading-sheet ${selectedIdea ? "research-reading-sheet-idea" : ""}`} ref={readingSheetRef}>
@@ -2091,6 +2258,17 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
               <p className="research-reading-citation">{selectedPaper.apaCitation || selectedPaper.citation || "Citation has not been completed yet."}</p>
 
               <div className="research-reading-actions">
+                {heldIdea ? (
+                  <button
+                    className="research-attach-held-sticky"
+                    disabled={heldIdeaAttachedToSelectedPaper || heldIdeaConnectionSaving}
+                    onClick={() => void attachIdeaToPaper(heldIdea, selectedPaper)}
+                    title={heldIdeaConnectionSaving ? `Saving ${heldIdea.topic}` : heldIdeaAttachedToSelectedPaper ? `${heldIdea.topic} is already attached to this paper` : `Attach ${heldIdea.topic} to this paper`}
+                    type="button"
+                  >
+                    <Lightbulb className="h-4 w-4" /> {heldIdeaConnectionSaving ? "Attaching..." : heldIdeaAttachedToSelectedPaper ? "Sticky attached" : "Attach held sticky"}
+                  </button>
+                ) : null}
                 {selectedPaper.zoteroUrl ? <button onClick={() => openZoteroPaper(selectedPaper)} type="button"><ExternalLink className="h-4 w-4" /> Open Zotero</button> : null}
                 {selectedPaper.path ? <button onClick={() => void openVaultPaper(selectedPaper)} type="button"><ExternalLink className="h-4 w-4" /> Open note</button> : null}
                 <button onClick={() => addConnectedNote(selectedPaper)} type="button"><Link2 className="h-4 w-4" /> Add note</button>
@@ -2120,8 +2298,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                         </button>
                         <button
                           aria-label={`Detach sticky from ${paper.title}`}
+                          disabled={connectionSavingIdeaPath === selectedIdea.path}
                           onClick={() => void detachIdeaFromPaper(selectedIdea, paper)}
-                          title="Detach this paper"
+                          title={connectionSavingIdeaPath === selectedIdea.path ? "Saving the current paper connection" : "Detach this paper"}
                           type="button"
                         >
                           <X className="h-3.5 w-3.5" />
@@ -2276,6 +2455,9 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
                 <button onClick={() => { setContextMenu(null); void patchPaperState(contextMenu.paper!, { dogEared: !contextMenu.paper!.dogEared }); }} role="menuitem" type="button"><Bookmark className="h-3.5 w-3.5" /> {contextMenu.paper.dogEared ? "Remove dog-ear" : "Dog-ear paper"}</button>
                 <button onClick={() => { setContextMenu(null); void patchPaperState(contextMenu.paper!, { readingStatus: "read" }); }} role="menuitem" type="button"><BookOpen className="h-3.5 w-3.5" /> Mark as read</button>
                 <button onClick={() => { setContextMenu(null); addConnectedNote(contextMenu.paper); }} role="menuitem" type="button"><Link2 className="h-3.5 w-3.5" /> Connected note</button>
+                {paperConnectionCount(contextMenu.paper) ? (
+                  <button onClick={() => { removePaperConnections(contextMenu.paper!); setContextMenu(null); }} role="menuitem" type="button"><Network className="h-3.5 w-3.5" /> Remove paper links ({paperConnectionCount(contextMenu.paper)})</button>
+                ) : null}
                 {contextMenu.paper.path ? <button onClick={() => { setContextMenu(null); void openVaultPaper(contextMenu.paper!); }} role="menuitem" type="button"><ExternalLink className="h-3.5 w-3.5" /> Open in Obsidian</button> : null}
                 {contextMenu.paper.zoteroUrl ? <button onClick={() => { setContextMenu(null); openZoteroPaper(contextMenu.paper!); }} role="menuitem" type="button"><ExternalLink className="h-3.5 w-3.5" /> Open in Zotero</button> : null}
               </>
@@ -2294,6 +2476,7 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
         <div className="research-desk-status">
           <MapPin className="h-3.5 w-3.5" />
           <span>{papers.length} {papers.length === 1 ? "paper" : "papers"} · {ideas.length} {ideas.length === 1 ? "idea" : "ideas"}</span>
+          {paperConnections.length ? <span>{paperConnections.length} paper link{paperConnections.length === 1 ? "" : "s"}</span> : null}
           <button
             aria-pressed={metadataFocus}
             className={metadataFocus ? "research-metadata-status is-active" : "research-metadata-status"}
@@ -2318,26 +2501,34 @@ export function ResearchWorkspace({ isActive, onClose, onOpenWorkbench }: Resear
               {sources.duplicateCount} exact duplicate{sources.duplicateCount === 1 ? "" : "s"} shown once
             </button>
           ) : null}
+          {heldIdea ? (
+            <span className="research-held-sticky-status" title={`Keep ${heldIdea.topic} available while finding papers`}>
+              <Lightbulb className="h-3 w-3" />
+              <button onClick={() => selectIdea(heldIdea)} type="button">Linking: {heldIdea.topic}</button>
+              <button aria-label={`Stop linking ${heldIdea.topic}`} onClick={() => setHeldIdeaPath("")} type="button"><X className="h-3 w-3" /></button>
+            </span>
+          ) : null}
           {sources?.lastSyncedAt ? <span>Zotero checked {new Date(sources.lastSyncedAt).toLocaleDateString()}</span> : null}
-          {hasActiveFilter ? <span className="research-desk-message">{filteredStatusMessage}</span> : message ? <span className="research-desk-message">{message}</span> : null}
+          {hasActiveFilter ? <span className="research-desk-message">{filteredStatusMessage}</span> : null}
+          {message ? <span className="research-desk-message research-operation-message">{message}</span> : null}
         </div>
       </div>
 
       <div className="research-desk-toolbar">
         <div aria-label="Research view controls" className="research-toolbar-group">
           <span className="research-toolbar-group-label">View</span>
-          {focusedStack ? (
-            <button className="is-active" onClick={() => closeFocusedStack()} type="button">
-              <ArrowLeft className="h-3.5 w-3.5" /> Desk view
+          {expandedStackKeys.length ? (
+            <button className="is-active" onClick={restackOpenPiles} type="button">
+              <Layers3 className="h-3.5 w-3.5" /> Restack open ({expandedStackKeys.length})
             </button>
           ) : null}
           <button onClick={() => showAllPapers()} title="Clear every filter and show the complete library" type="button">
             <Layers3 className="h-3.5 w-3.5" /> Show all
           </button>
-          <button onClick={() => { if (focusedStackKey) closeFocusedStack(false); fitDesk(); }} title="Fit the visible stacks inside the desk" type="button">
+          <button onClick={() => fitDesk()} title="Fit the visible piles inside the desk" type="button">
             <Compass className="h-3.5 w-3.5" /> Fit desk
           </button>
-          <button onClick={() => { if (focusedStackKey) closeFocusedStack(false); organizeDesk(); }} title="Gather and restack the visible library" type="button">
+          <button onClick={() => organizeDesk()} title="Gather and restack the visible library" type="button">
             <RotateCcw className="h-3.5 w-3.5" /> Stack desk
           </button>
           <button

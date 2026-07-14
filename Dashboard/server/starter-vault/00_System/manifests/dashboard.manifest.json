@@ -1,0 +1,25 @@
+{
+  "generated_at": null,
+  "items": [
+    {
+      "id": "notes_count",
+      "label": "Indexed notes",
+      "value": 0
+    },
+    {
+      "id": "captures_count",
+      "label": "Captures",
+      "value": 0
+    },
+    {
+      "id": "workflow_runs_count",
+      "label": "Workflow runs",
+      "value": 0
+    },
+    {
+      "id": "integrations_count",
+      "label": "Integration notes",
+      "value": 3
+    }
+  ]
+}

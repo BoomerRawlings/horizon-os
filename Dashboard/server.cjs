@@ -23,6 +23,12 @@ const {
   vaultConnectionPath,
   vaultStructureStatus,
 } = require("./server/vaultConnection.cjs");
+const {
+  decryptIntegrationStore,
+  encryptIntegrationStore,
+  isEncryptedIntegrationStore,
+  parseMasterKey,
+} = require("./server/integrationStoreCrypto.cjs");
 
 const ROOT = process.env.HORIZON_VAULT_ROOT || path.resolve(__dirname, "..");
 const HORIZON_APP_DATA_DIR = defaultHorizonAppDataDir();
@@ -71,9 +77,11 @@ const STARTUP_DIR = path.join(
   "Programs",
   "Startup",
 );
-const STARTUP_LAUNCH_SHORTCUT = path.join(STARTUP_DIR, "HorizonOS.lnk");
+const STARTUP_LAUNCH_SHORTCUT = path.join(STARTUP_DIR, "Horizon.lnk");
 const LEGACY_STARTUP_LAUNCH_SHORTCUTS = [
+  path.join(STARTUP_DIR, "HorizonOS.lnk"),
   path.join(STARTUP_DIR, "Horizon OS.lnk"),
+  path.join(STARTUP_DIR, "HorizonOS Server.lnk"),
   path.join(STARTUP_DIR, "Horizon OS Server.lnk"),
 ];
 const HORIZON_HIDDEN_RUNNER = path.join(__dirname, "run-hidden.vbs");
@@ -90,10 +98,33 @@ const PACKAGED_BUILD_INFO_PATH = path.resolve(
   process.env.HORIZON_PACKAGED_BUILD_INFO_PATH || path.join(DIST_DIR, "build-info.json"),
 );
 const IS_PACKAGED_RUNTIME = Boolean(process.env.HORIZON_NATIVE_APP_EXE);
+const HORIZON_INSTALLER_ASSET = "Horizon-Setup.exe";
+const HORIZON_INSTALLER_DOWNLOAD_URL = "https://github.com/BoomerRawlings/horizon-os/releases/latest/download/Horizon-Setup.exe";
+const HORIZON_LATEST_RELEASE_API = "https://api.github.com/repos/BoomerRawlings/horizon-os/releases/latest";
+const TEST_RELEASE_FIXTURE_PATH = String(process.env.HORIZON_TEST_RELEASE_FIXTURE_PATH || "");
 const INTEGRATION_SETTINGS_PATH = path.join(HORIZON_APP_DATA_DIR, "integration-settings.json");
+const REQUIRE_CREDENTIAL_ENCRYPTION = process.env.HORIZON_REQUIRE_CREDENTIAL_ENCRYPTION === "1";
+const INTEGRATION_STORE_MASTER_KEY = String(process.env.HORIZON_INTEGRATION_STORE_KEY || "");
+const TEST_NATIVE_RELAUNCH_PLAN_PATH = String(process.env.HORIZON_TEST_NATIVE_RELAUNCH_PLAN_PATH || "");
+delete process.env.HORIZON_INTEGRATION_STORE_KEY;
+let INTEGRATION_STORE_ENCRYPTION_ACTIVE = false;
+if (INTEGRATION_STORE_MASTER_KEY) {
+  try {
+    parseMasterKey(INTEGRATION_STORE_MASTER_KEY);
+    INTEGRATION_STORE_ENCRYPTION_ACTIVE = true;
+  } catch {
+    throw new Error("Horizon credential encryption could not start because its protected key is invalid.");
+  }
+}
+if (REQUIRE_CREDENTIAL_ENCRYPTION && !INTEGRATION_STORE_ENCRYPTION_ACTIVE) {
+  throw new Error("Horizon credential encryption is required, but no protected key was provided.");
+}
 const INTEGRATION_RUN_LOG_DIR = path.join(ROOT, "Runs", "IntegrationTests");
 const PORT = Number(process.env.PORT || 3873);
 const HOST = "127.0.0.1";
+const TRUSTED_APP_HOST = `${HOST}:${PORT}`;
+const TRUSTED_APP_ORIGIN = `http://${HOST}:${PORT}`;
+const ALLOW_ORIGINLESS_MUTATIONS = process.env.HORIZON_ALLOW_ORIGINLESS_MUTATIONS === "1";
 const GOOGLE_OAUTH_REDIRECT_URI = `http://${HOST}:${PORT}`;
 const APP_TIME_ZONE = process.env.HORIZON_TIME_ZONE || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 function currentToday() {
@@ -121,10 +152,10 @@ const FIELD_ORDER = [
 
 const RESEARCH_NOTES_PATH = process.env.HORIZON_RESEARCH_NOTES_PATH || path.join(ROOT, "Research Papers");
 const DEFAULT_AI_AGENT_MODEL = "gpt-5.4-mini";
+const AI_AGENT_VALIDATION_VERSION = 3;
 const DEFAULT_AI_AGENT_MODELS = [
   { id: "gpt-5.4-mini", label: "GPT-5.4 mini", source: "recommended" },
   { id: "gpt-5.4", label: "GPT-5.4", source: "default" },
-  { id: "gpt-5.5-mini", label: "GPT-5.5 mini", source: "default" },
   { id: "gpt-5.5", label: "GPT-5.5", source: "default" },
   { id: "gpt-5-mini", label: "GPT-5 mini", source: "default" },
   { id: "gpt-5", label: "GPT-5", source: "default" },
@@ -145,6 +176,7 @@ function isLikelyOpenAiTextModel(id) {
 
 function mergeAiModelOptions(apiModels, currentModel, options = {}) {
   const includeDefaults = options.includeDefaults !== false;
+  const includeSelected = options.includeSelected !== false;
   const byId = new Map();
   if (includeDefaults) {
     for (const model of DEFAULT_AI_AGENT_MODELS) {
@@ -163,7 +195,7 @@ function mergeAiModelOptions(apiModels, currentModel, options = {}) {
     });
   }
   const selected = String(currentModel || DEFAULT_AI_AGENT_MODEL).trim() || DEFAULT_AI_AGENT_MODEL;
-  if (!byId.has(selected)) {
+  if (includeSelected && !byId.has(selected)) {
     byId.set(selected, { id: selected, label: aiModelLabel(selected), source: "selected" });
   }
   const preferred = DEFAULT_AI_AGENT_MODELS.map((model) => model.id);
@@ -187,55 +219,55 @@ function mergeAiModelOptions(apiModels, currentModel, options = {}) {
 // Keep this the single source of truth — the frontend derives from /api/integrations.
 const INTEGRATION_DEFINITIONS = {
   obsidian: {
-    actionLabel: "Choose vault",
+    actionLabel: "Choose workspace",
     capability: "integration",
     category: "notes",
     defaultSettings: { vaultPath: ROOT },
-    detailLabel: "Desktop folder access required",
+    detailLabel: "Choose a Horizon workspace or Obsidian vault",
     id: "obsidian",
     label: "Obsidian",
-    permissionSummary: "Reads and writes the selected local vault after you validate it.",
+    permissionSummary: "Reads and writes the selected local Markdown workspace after you validate it.",
     status: "vault_missing",
-    statusLabel: "Vault not selected",
+    statusLabel: "Workspace not selected",
     type: "local_folder",
   },
   codex: {
-    actionLabel: "Configure",
+    actionLabel: "Open Codex",
     capability: "launcher",
     category: "developer",
     defaultSettings: { workspacePath: ROOT },
-    detailLabel: "Local app bridge not configured",
+    detailLabel: "Opens Codex; sign in securely inside Codex",
     id: "codex",
     label: "Codex",
-    permissionSummary: "Uses selected project folders only after Horizon validates the workspace.",
-    status: "stale",
-    statusLabel: "Bridge needed",
+    permissionSummary: "Passes no password, session, or API key to Codex.",
+    status: "connected_limited",
+    statusLabel: "Launcher ready",
     type: "local_app",
   },
   microsoft: {
-    actionLabel: "Configure",
+    actionLabel: "Open apps",
     capability: "launcher",
     category: "files",
-    defaultSettings: { accountEmail: "", clientId: "", scopes: "Calendars.ReadWrite, Files.ReadWrite", tenantId: "common" },
-    detailLabel: "No OAuth client configured",
+    defaultSettings: {},
+    detailLabel: "Opens Microsoft apps or their official websites",
     id: "microsoft",
     label: "Microsoft",
-    permissionSummary: "Uses Microsoft OAuth configuration. Horizon does not ask for your Microsoft password.",
-    status: "permission_missing",
-    statusLabel: "OAuth app needed",
-    type: "oauth",
+    permissionSummary: "Sign in inside Microsoft apps or websites; Horizon never receives your password.",
+    status: "connected_limited",
+    statusLabel: "Launcher ready",
+    type: "local_app",
   },
   "google-drive": {
-    actionLabel: "Configure",
+    actionLabel: "Connect",
     capability: "integration",
     category: "files",
-    defaultSettings: { accountEmail: "", clientId: "", scopes: "calendar, drive.metadata.readonly" },
-    detailLabel: "No OAuth client configured",
+    defaultSettings: { accountEmail: "", clientId: "", scopes: "drive.metadata.readonly" },
+    detailLabel: "Google sign-in is not available in this copy",
     id: "google-drive",
     label: "Google Drive",
-    permissionSummary: "Uses Google OAuth configuration and selected Drive scopes. Gmail is not enabled by this tile.",
+    permissionSummary: "Uses Google OAuth and read-only Drive metadata access when publisher sign-in is available.",
     status: "permission_missing",
-    statusLabel: "OAuth app needed",
+    statusLabel: "Sign-in unavailable",
     type: "oauth",
   },
   research: {
@@ -252,27 +284,27 @@ const INTEGRATION_DEFINITIONS = {
     type: "compound",
   },
   zotero: {
-    actionLabel: "Configure",
+    actionLabel: "Connect",
     capability: "integration",
     category: "research",
-    defaultSettings: { zoteroApiKey: "", zoteroUserId: "" },
-    detailLabel: "Zotero credentials not configured",
+    defaultSettings: { zoteroApiKey: "", zoteroUserId: "", zoteroUsername: "", zoteroLocal: { enabled: false, verifiedAt: null } },
+    detailLabel: "Connect the Zotero desktop app, or add an optional cloud key",
     id: "zotero",
     label: "Zotero",
-    permissionSummary: "Uses a Zotero User ID and API key to test and later sync library metadata.",
+    permissionSummary: "Reads the local Zotero desktop library without a key. An optional cloud key enables sync when Zotero is closed and approved writes.",
     status: "api_key_required",
-    statusLabel: "Credentials needed",
-    type: "api_key",
+    statusLabel: "Desktop connection available",
+    type: "compound",
   },
   "ai-agent": {
-    actionLabel: "Add key",
+    actionLabel: "Connect",
     capability: "integration",
     category: "ai",
     defaultSettings: { model: DEFAULT_AI_AGENT_MODEL, provider: "OpenAI", tokenOrKey: "" },
-    detailLabel: "Key validation requires secure storage",
+    detailLabel: "OpenAI API key not connected",
     id: "ai-agent",
     label: "AI Agent",
-    permissionSummary: "Stores local key metadata for future capture parsing and workflow routing.",
+    permissionSummary: "Uses your own OpenAI API account for optional Capture triage and workflow assistance.",
     status: "api_key_required",
     statusLabel: "API key required",
     type: "api_key",
@@ -354,11 +386,11 @@ const LAUNCH_ACTIONS = {
   "google.forms": { id: "google.forms", label: "Google Forms", kind: "web_url", target: "https://forms.google.com" },
   "google.calendar": { id: "google.calendar", label: "Google Calendar", kind: "web_url", target: "https://calendar.google.com" },
   "google.gmail": { id: "google.gmail", label: "Gmail", kind: "web_url", target: "https://mail.google.com" },
-  "research.ucsd_library": {
-    id: "research.ucsd_library",
-    label: "UCSD Library",
+  "research.worldcat": {
+    id: "research.worldcat",
+    label: "WorldCat",
     kind: "web_url",
-    target: "https://search-library.ucsd.edu",
+    target: "https://search.worldcat.org",
   },
   "research.google_scholar": {
     id: "research.google_scholar",
@@ -722,10 +754,18 @@ async function resolveExecutable(action) {
 async function launchLocalApp(action) {
   const executable = await resolveExecutable(action);
   if (!executable) {
+    if (action.fallbackUrl && isSafeWebUrl(action.fallbackUrl)) {
+      await startProcess(action.fallbackUrl);
+      return {
+        ok: true,
+        state: "opened",
+        message: `${action.label} is not installed, so Horizon opened the official web version instead.`,
+      };
+    }
     return {
       ok: false,
       state: "missing_app",
-      message: `${action.label} was not found on this PC.${action.fallbackUrl ? " Use the web fallback from setup if needed." : ""}`,
+      message: `${action.label} was not found on this PC.`,
       fallbackUrl: action.fallbackUrl,
     };
   }
@@ -862,6 +902,129 @@ function packagedBuildInfo() {
   }
 }
 
+function parseReleaseVersion(value) {
+  const match = String(value || "").trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/i);
+  return match ? match.slice(1).map((part) => Number(part)) : null;
+}
+
+function compareReleaseVersions(left, right) {
+  const leftParts = parseReleaseVersion(left);
+  const rightParts = parseReleaseVersion(right);
+  if (!leftParts || !rightParts) throw new Error("Horizon received an invalid release version.");
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] > rightParts[index] ? 1 : -1;
+  }
+  return 0;
+}
+
+let latestReleaseCache = null;
+
+async function latestReleasePayload({ fetchRemote }) {
+  if (TEST_RELEASE_FIXTURE_PATH) {
+    return JSON.parse(fs.readFileSync(TEST_RELEASE_FIXTURE_PATH, "utf8"));
+  }
+  if (!fetchRemote && latestReleaseCache) return latestReleaseCache;
+  if (!fetchRemote) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(HORIZON_LATEST_RELEASE_API, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": `HorizonOS/${APP_VERSION} (+https://github.com/BoomerRawlings/horizon-os)`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`GitHub returned HTTP ${response.status}.`);
+    latestReleaseCache = await response.json();
+    return latestReleaseCache;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function packagedReleaseSnapshot({ checkedAt, fetchRemote, packagedCommit }) {
+  const base = {
+    branch: null,
+    checkedAt,
+    current: APP_VERSION,
+    dirty: false,
+    downloadUrl: HORIZON_INSTALLER_DOWNLOAD_URL,
+    fetchFailed: false,
+    latest: null,
+    packageStale: false,
+    packagedCommit,
+    packagedVersion: APP_VERSION,
+    remote: "https://github.com/BoomerRawlings/horizon-os/releases/latest",
+    sourceUpdateAvailable: false,
+    sourceVersion: null,
+    supported: true,
+    updateAvailable: false,
+    updateMode: "installer",
+    upstream: null,
+    version: APP_VERSION,
+  };
+
+  try {
+    const release = await latestReleasePayload({ fetchRemote });
+    if (!release) {
+      return {
+        ...base,
+        checkState: "current",
+        message: "Horizon is ready to relaunch.",
+      };
+    }
+    const latestVersion = String(release.tag_name || "").trim().replace(/^v/i, "");
+    const comparison = compareReleaseVersions(latestVersion, APP_VERSION);
+    const installerAsset = Array.isArray(release.assets)
+      ? release.assets.find((asset) => asset?.name === HORIZON_INSTALLER_ASSET)
+      : null;
+    const downloadUrl = String(installerAsset?.browser_download_url || HORIZON_INSTALLER_DOWNLOAD_URL);
+    if (comparison > 0 && !installerAsset) {
+      return {
+        ...base,
+        checkState: "fetch_failed",
+        downloadUrl: String(release.html_url || base.remote),
+        fetchFailed: true,
+        latest: latestVersion,
+        message: `Horizon ${latestVersion} is listed, but its Windows installer is not available yet. Try again shortly.`,
+        sourceVersion: latestVersion,
+      };
+    }
+    if (comparison > 0) {
+      return {
+        ...base,
+        checkState: "update_available",
+        downloadUrl,
+        latest: latestVersion,
+        message: `Horizon ${latestVersion} is available. Download the installer, close Horizon, and run it; your workspace and connections stay in place.`,
+        sourceUpdateAvailable: true,
+        sourceVersion: latestVersion,
+        updateAvailable: true,
+      };
+    }
+    return {
+      ...base,
+      checkState: "current",
+      downloadUrl,
+      latest: latestVersion,
+      message: comparison === 0
+        ? `Horizon ${APP_VERSION} is up to date.`
+        : `This Horizon ${APP_VERSION} build is newer than the latest public release (${latestVersion}).`,
+      sourceVersion: latestVersion,
+    };
+  } catch {
+    return {
+      ...base,
+      checkState: "fetch_failed",
+      fetchFailed: true,
+      message: "Horizon could not check the latest release. Retry when you are online, or use the installer link below.",
+    };
+  }
+}
+
 async function updateSnapshot(fetchRemote) {
   const checkedAt = nowIso();
   const sourceVersion = packageVersionAt(path.join(REPO_DASHBOARD_DIR, "package.json"));
@@ -888,6 +1051,10 @@ async function updateSnapshot(fetchRemote) {
     upstream: null,
     version: APP_VERSION,
   });
+
+  if (IS_PACKAGED_RUNTIME) {
+    return packagedReleaseSnapshot({ checkedAt, fetchRemote, packagedCommit });
+  }
 
   if (!fs.existsSync(path.join(APP_SOURCE_ROOT, ".git")) || !fs.existsSync(path.join(REPO_DASHBOARD_DIR, "package.json"))) {
     return unavailable("This Horizon installation is not connected to an update checkout. Run the current installer once to repair it.");
@@ -1012,20 +1179,72 @@ function integrationDefinition(id) {
   return INTEGRATION_DEFINITIONS[id] || null;
 }
 
-function readIntegrationStore() {
-  const store = safeJsonRead(INTEGRATION_SETTINGS_PATH, null);
-  if (store && typeof store === "object" && store.integrations && typeof store.integrations === "object") {
-    return store;
+function writePrivateText(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.tmp`;
+  fs.writeFileSync(temporaryPath, value, { encoding: "utf8", mode: 0o600 });
+  fs.renameSync(temporaryPath, filePath);
+}
+
+function validIntegrationStore(store) {
+  return Boolean(store && typeof store === "object" && store.integrations && typeof store.integrations === "object");
+}
+
+function writeIntegrationStoreFile(store) {
+  if (INTEGRATION_STORE_ENCRYPTION_ACTIVE) {
+    writePrivateText(INTEGRATION_SETTINGS_PATH, encryptIntegrationStore(store, INTEGRATION_STORE_MASTER_KEY));
+    return;
   }
-  return { integrations: {}, updatedAt: null, version: 1 };
+  if (REQUIRE_CREDENTIAL_ENCRYPTION) {
+    throw new Error("Horizon refused to save integration settings without credential encryption.");
+  }
+  writeJson(INTEGRATION_SETTINGS_PATH, store);
+}
+
+function readIntegrationStore() {
+  if (!fs.existsSync(INTEGRATION_SETTINGS_PATH)) return { integrations: {}, updatedAt: null, version: 1 };
+
+  let serialized;
+  try {
+    serialized = fs.readFileSync(INTEGRATION_SETTINGS_PATH, "utf8");
+  } catch {
+    throw new Error("Horizon could not read the protected integration settings file.");
+  }
+
+  let store;
+  if (isEncryptedIntegrationStore(serialized)) {
+    if (!INTEGRATION_STORE_ENCRYPTION_ACTIVE) {
+      throw new Error("Encrypted integration settings cannot be opened without the installed Horizon app.");
+    }
+    try {
+      store = decryptIntegrationStore(serialized, INTEGRATION_STORE_MASTER_KEY);
+    } catch {
+      throw new Error("Horizon could not authenticate the protected integration settings file.");
+    }
+  } else {
+    try {
+      store = JSON.parse(serialized);
+    } catch {
+      throw new Error("Horizon could not read the integration settings file.");
+    }
+  }
+
+  if (!validIntegrationStore(store)) {
+    throw new Error("Horizon found an invalid integration settings file.");
+  }
+  if (!isEncryptedIntegrationStore(serialized) && INTEGRATION_STORE_ENCRYPTION_ACTIVE) {
+    writeIntegrationStoreFile(store);
+  }
+  return store;
 }
 
 function saveIntegrationStore(store) {
-  writeJson(INTEGRATION_SETTINGS_PATH, {
+  const persistedStore = {
     ...store,
     updatedAt: nowIso(),
     version: 1,
-  });
+  };
+  writeIntegrationStoreFile(persistedStore);
 
   try {
     writeHorizonRedactedIntegrations(store);
@@ -1080,7 +1299,15 @@ function redactSensitiveSettings(value) {
 }
 
 function redactIntegrationSettings(id, settings) {
-  return redactSensitiveSettings(settings);
+  const redacted = redactSensitiveSettings(settings);
+  if (id === "google-drive") {
+    try {
+      redacted.googleOAuthAvailable = Boolean(readGoogleOAuthClient(settings).clientId);
+    } catch {
+      redacted.googleOAuthAvailable = false;
+    }
+  }
+  return redacted;
 }
 
 function redactedIntegrationSettingsStore(store = readIntegrationStore()) {
@@ -1104,7 +1331,7 @@ function redactedIntegrationSettingsStore(store = readIntegrationStore()) {
   return {
     generatedAt: nowIso(),
     source: "Horizon app-data/integration-settings.json",
-    secretsPolicy: "Secrets are redacted. Actual keys remain in this machine's Horizon app-data and are not written to the vault.",
+    secretsPolicy: "Secrets are redacted. Installed Horizon encrypts the complete integration store with operating-system-protected key material; direct developer-server mode may use local plaintext.",
     integrations,
     version: 1,
   };
@@ -1112,7 +1339,9 @@ function redactedIntegrationSettingsStore(store = readIntegrationStore()) {
 
 function writeHorizonRedactedIntegrations(store = readIntegrationStore()) {
   const snapshot = redactedIntegrationSettingsStore(store);
-  writeJson(HORIZON_REDACTED_INTEGRATIONS_PATH, snapshot);
+  if (process.env.RSB_DISABLE_INTEGRATION_MIRROR !== "1") {
+    writeJson(HORIZON_REDACTED_INTEGRATIONS_PATH, snapshot);
+  }
   return snapshot;
 }
 
@@ -1150,7 +1379,7 @@ function horizonStateSummary(state, redactedIntegrations) {
     "## Git Policy",
     "",
     "This folder is ignored by Git. It may contain personal preferences and local machine paths.",
-    "Do not move secrets here. Integration credentials stay in Windows app-data and only redacted summaries are mirrored.",
+    "Do not move secrets here. Installed Horizon keeps the encrypted integration store in app-data and mirrors only redacted summaries.",
     "",
   ];
 }
@@ -1232,20 +1461,20 @@ function connectionForIntegration(id) {
     if (!rawSettings.vaultPath || !vault.exists) {
       return {
         ...definition,
-        actionLabel: "Choose vault",
-        detailLabel: rawSettings.vaultPath || "Vault path needed",
+        actionLabel: "Choose workspace",
+        detailLabel: rawSettings.vaultPath || "Workspace path needed",
         lastCheckedLabel,
         status: "vault_missing",
-        statusLabel: "Vault missing",
+        statusLabel: "Workspace missing",
       };
     }
     return {
       ...definition,
-      actionLabel: "Manage",
+      actionLabel: "Manage workspace",
       detailLabel: vault.initialized ? `Ready: ${vault.path}` : `Needs initialization: ${vault.path}`,
       lastCheckedLabel,
       status: vault.initialized ? "connected" : "connected_limited",
-      statusLabel: vault.initialized ? "Vault ready" : "Vault valid",
+      statusLabel: vault.initialized ? "Workspace ready" : "Workspace valid",
     };
   }
 
@@ -1253,47 +1482,71 @@ function connectionForIntegration(id) {
     const workspacePath = String(rawSettings.workspacePath || "").trim();
     return {
       ...definition,
-      actionLabel: "Manage",
-      detailLabel: workspacePath || "Workspace path needed",
+      actionLabel: "Open Codex",
+      detailLabel: workspacePath ? `Workspace ready: ${workspacePath}` : "Choose a workspace in Codex",
       lastCheckedLabel,
       status: pathExistsDirectory(workspacePath) ? "connected_limited" : "stale",
-      statusLabel: pathExistsDirectory(workspacePath) ? "Workspace found" : "Workspace missing",
+      statusLabel: pathExistsDirectory(workspacePath) ? "Launcher ready" : "Choose workspace in Codex",
     };
   }
 
   if (id === "microsoft") {
-    const accountLabel = String(rawSettings.accountEmail || "").trim() || undefined;
-    const clientId = String(rawSettings.clientId || "").trim();
     return {
       ...definition,
-      accountLabel,
-      actionLabel: "Configure",
-      detailLabel: clientId ? "Microsoft OAuth config saved" : "Microsoft OAuth app needed",
+      actionLabel: "Open apps",
+      detailLabel: "Opens Microsoft apps and official websites; account sync is not available yet",
       lastCheckedLabel,
-      status: clientId ? "auth_pending" : "permission_missing",
-      statusLabel: clientId ? "OAuth config saved" : "OAuth app needed",
+      status: "connected_limited",
+      statusLabel: "Launcher ready",
     };
   }
 
   if (id === "google-drive") {
     const accountLabel = String(rawSettings.accountEmail || "").trim() || undefined;
-    const clientId = String(rawSettings.clientId || "").trim();
     const tokenState = googleTokenStatus(rawSettings);
-    const isConnected = tokenState === "refreshable" || tokenState === "access_valid";
+    const failedState = saved.lastTestResult && !saved.lastTestResult.ok
+      ? ["needs_reauth", "offline", "rate_limited", "permission_missing", "error"].includes(saved.lastTestResult.state)
+        ? saved.lastTestResult.state
+        : "error"
+      : null;
+    const isConnected = !failedState && (tokenState === "refreshable" || tokenState === "access_valid");
+    const oauthAvailable = (() => {
+      try {
+        return Boolean(readGoogleOAuthClient(rawSettings).clientId);
+      } catch {
+        return false;
+      }
+    })();
     return {
       ...definition,
       accountLabel,
-      actionLabel: isConnected ? "Manage" : "Configure",
+      actionLabel: isConnected ? "Manage" : failedState === "needs_reauth" ? "Reconnect" : "Connect",
       detailLabel: isConnected
         ? accountLabel
           ? `Connected as ${accountLabel}`
           : "Google authorized locally"
-        : clientId
-          ? "Google OAuth config saved"
-          : "Google OAuth app needed",
+        : failedState === "needs_reauth"
+          ? "Google access expired or was revoked"
+          : failedState === "offline"
+            ? "Google could not be reached during the last check"
+            : oauthAvailable
+              ? "Ready for browser sign-in"
+              : "Google sign-in is not available in this copy",
       lastCheckedLabel,
-      status: isConnected ? "connected" : clientId ? "auth_pending" : "permission_missing",
-      statusLabel: isConnected ? "Connected" : clientId ? "OAuth config saved" : "OAuth app needed",
+      status: isConnected ? "connected" : failedState || (oauthAvailable ? "auth_pending" : "permission_missing"),
+      statusLabel: isConnected
+        ? "Connected"
+        : failedState === "needs_reauth"
+          ? "Reconnect required"
+          : failedState === "offline"
+            ? "Could not verify"
+            : failedState === "rate_limited"
+              ? "Google asked Horizon to wait"
+              : failedState
+                ? "Sign-in needs attention"
+                : oauthAvailable
+                  ? "Sign-in required"
+                  : "Sign-in unavailable",
     };
   }
 
@@ -1312,14 +1565,65 @@ function connectionForIntegration(id) {
 
   if (id === "zotero") {
     const userId = String(rawSettings.zoteroUserId || "").trim();
+    const username = String(rawSettings.zoteroUsername || "").trim();
     const hasKey = Boolean(rawSettings.zoteroApiKey);
+    const localVerified = Boolean(rawSettings.zoteroLocal?.enabled && rawSettings.zoteroLocal?.verifiedAt);
+    const localFailureState = !localVerified && ["offline", "permission_missing", "error"].includes(rawSettings.zoteroLocal?.state)
+      ? rawSettings.zoteroLocal.state
+      : null;
+    const canReadLibrary = rawSettings.zoteroAccess?.library === true || localVerified;
+    const canWriteLibrary = rawSettings.zoteroAccess?.write === true;
+    const cloudVerified = Boolean(
+      hasKey &&
+      userId &&
+      rawSettings.zoteroAccess?.library === true &&
+      saved.lastTestResult?.ok &&
+      ["connected", "connected_limited"].includes(saved.lastTestResult?.state),
+    );
+    const verified = cloudVerified || localVerified;
+    const failedState = saved.lastTestResult && !saved.lastTestResult.ok
+      ? ["not_connected", "missing_credentials", "api_key_required"].includes(saved.lastTestResult.state)
+        ? "api_key_required"
+        : ["offline", "permission_missing", "rate_limited"].includes(saved.lastTestResult.state)
+          ? saved.lastTestResult.state
+          : "api_key_invalid"
+      : null;
     return {
       ...definition,
-      actionLabel: "Manage",
-      detailLabel: userId ? `User ID ${userId}${hasKey ? ", key saved" : ""}` : "Zotero User ID needed",
+      actionLabel: verified || hasKey ? "Manage" : "Connect",
+      accountLabel: username || (localVerified ? "Zotero Desktop" : undefined),
+      detailLabel: cloudVerified
+        ? `${username || `Zotero user ${userId}`}, cloud key saved`
+        : localVerified
+          ? "Zotero Desktop connected locally"
+          : hasKey
+            ? "Cloud key saved; verification needed"
+            : "Open Zotero Desktop, then connect without a key",
       lastCheckedLabel,
-      status: userId && hasKey ? "connected_limited" : "api_key_required",
-      statusLabel: userId && hasKey ? "Credentials saved" : "Credentials needed",
+      status: verified
+        ? canWriteLibrary ? "connected" : "connected_limited"
+        : failedState || localFailureState || (hasKey ? "auth_pending" : "not_connected"),
+      statusLabel: verified
+        ? canWriteLibrary
+          ? "Connected"
+          : "Read-only connection"
+        : failedState
+          ? failedState === "api_key_required"
+            ? "Key needed"
+            : failedState === "offline"
+              ? "Could not reach Zotero"
+              : failedState === "permission_missing"
+                ? "Permissions need attention"
+                : "Key needs attention"
+          : localFailureState === "offline"
+            ? "Open Zotero Desktop"
+            : localFailureState === "permission_missing"
+              ? "Enable local access in Zotero"
+              : localFailureState
+                ? "Desktop connection needs attention"
+                : hasKey
+            ? "Verification needed"
+            : "Connect Zotero Desktop",
     };
   }
 
@@ -1327,13 +1631,45 @@ function connectionForIntegration(id) {
     const provider = String(rawSettings.provider || "AI provider").trim();
     const model = String(rawSettings.model || "").trim();
     const hasKey = Boolean(rawSettings.tokenOrKey);
+    const verified = Boolean(
+      hasKey
+      && saved.lastTestResult?.ok
+      && saved.lastTestResult?.state === "responses_verified"
+      && saved.lastTestResult?.validationVersion === AI_AGENT_VALIDATION_VERSION
+      && saved.lastTestResult?.verifiedModel === model,
+    );
+    const failedState = saved.lastTestResult && !saved.lastTestResult.ok
+      ? ["not_connected", "api_key_required"].includes(saved.lastTestResult.state)
+        ? "api_key_required"
+        : ["api_key_invalid", "offline", "permission_missing", "rate_limited", "billing_required"].includes(saved.lastTestResult.state)
+          ? saved.lastTestResult.state
+          : "error"
+      : null;
     return {
       ...definition,
-      actionLabel: "Manage",
+      actionLabel: hasKey ? "Manage" : "Connect",
       detailLabel: hasKey ? `${provider} key ending ${secretTail(rawSettings.tokenOrKey)}${model ? `, ${model}` : ""}` : `${provider} key not stored`,
       lastCheckedLabel,
-      status: hasKey ? "connected_limited" : "api_key_required",
-      statusLabel: hasKey ? "Key metadata saved" : "API key required",
+      status: verified ? "connected" : failedState || (hasKey ? "auth_pending" : "api_key_required"),
+      statusLabel: verified
+        ? "Capture access verified"
+        : failedState
+          ? failedState === "api_key_invalid"
+            ? "Key needs attention"
+            : failedState === "api_key_required"
+              ? "API key required"
+              : failedState === "offline"
+                ? "OpenAI is unreachable"
+                : failedState === "rate_limited"
+                  ? "Rate or quota limit"
+                  : failedState === "billing_required"
+                    ? "API billing needed"
+                    : failedState === "permission_missing"
+                      ? "Key permissions needed"
+                      : "Connection needs attention"
+          : hasKey
+            ? "Verification needed"
+            : "API key required",
     };
   }
 
@@ -1359,11 +1695,29 @@ function sanitizeIntegrationPayload(id, payload) {
 function saveIntegrationSettings(id, payload) {
   if (!integrationDefinition(id)) throw new Error("Unknown integration");
   const store = readIntegrationStore();
+  const previousSettings = mergedIntegrationSettings(id, store);
   const settings = sanitizeIntegrationPayload(id, payload);
+  const secretChanged = ["tokenOrKey", "zoteroApiKey"].some((key) =>
+    Object.prototype.hasOwnProperty.call(payload.settings || payload || {}, key) &&
+    String(settings[key] || "").trim() !== String(previousSettings[key] || "").trim(),
+  );
+  const verificationChanged = secretChanged || (
+    id === "ai-agent"
+    && ["provider", "model"].some((key) =>
+      Object.prototype.hasOwnProperty.call(payload.settings || payload || {}, key)
+      && String(settings[key] || "").trim() !== String(previousSettings[key] || "").trim(),
+    )
+  );
+  if (id === "zotero" && secretChanged) {
+    settings.zoteroAccess = null;
+    settings.zoteroUserId = "";
+    settings.zoteroUsername = "";
+  }
   store.integrations[id] = {
     ...(store.integrations[id] || {}),
     settings,
     lastSavedAt: nowIso(),
+    ...(verificationChanged ? { lastTestedAt: null, lastTestResult: null } : {}),
   };
   saveIntegrationStore(store);
   const connection = connectionForIntegration(id);
@@ -1377,6 +1731,57 @@ function saveIntegrationSettings(id, payload) {
   return {
     connection,
     message: `${connection.label} settings saved.`,
+    settings: redactIntegrationSettings(id, settings),
+  };
+}
+
+function disconnectIntegration(id) {
+  if (!integrationDefinition(id)) throw new Error("Unknown integration");
+  const store = readIntegrationStore();
+  const current = mergedIntegrationSettings(id, store);
+  let settings = current;
+
+  if (id === "zotero") {
+    settings = {
+      ...current,
+      zoteroAccess: null,
+      zoteroApiKey: "",
+      zoteroLocal: { enabled: false, verifiedAt: null },
+      zoteroUserId: "",
+      zoteroUsername: "",
+    };
+  } else if (id === "ai-agent") {
+    settings = { ...current, tokenOrKey: "" };
+  } else if (id === "google-drive") {
+    settings = { ...current, oauthTokens: {} };
+  } else {
+    return {
+      connection: connectionForIntegration(id),
+      message: `${integrationDefinition(id).label} does not have a removable sign-in yet.`,
+      ok: false,
+      settings: redactIntegrationSettings(id, current),
+    };
+  }
+
+  store.integrations[id] = {
+    ...(store.integrations[id] || {}),
+    lastSavedAt: nowIso(),
+    lastTestedAt: null,
+    lastTestResult: null,
+    settings,
+  };
+  saveIntegrationStore(store);
+  writeIntegrationRunLog({
+    actionId: `${id}.disconnect`,
+    integrationId: id,
+    inputsSummary: "Removed locally stored integration credentials.",
+    outputsSummary: "Disconnected on this PC.",
+    status: "success",
+  });
+  return {
+    connection: connectionForIntegration(id),
+    message: `${integrationDefinition(id).label} disconnected on this PC.`,
+    ok: true,
     settings: redactIntegrationSettings(id, settings),
   };
 }
@@ -1420,6 +1825,7 @@ function ensureRunLogIndex() {
 }
 
 function writeIntegrationRunLog({ actionId, errors = [], filesTouched = [], inputsSummary, integrationId, outputsSummary, status }) {
+  if (process.env.RSB_DISABLE_RUN_LOGS === "1") return;
   try {
     const started = nowIso();
     const stamp = started.replace(/:/g, "-").replace(/\.\d{3}Z$/, "Z");
@@ -1460,33 +1866,132 @@ function writeIntegrationRunLog({ actionId, errors = [], filesTouched = [], inpu
 }
 
 async function testZotero(settings) {
-  const zoteroUserId = String(settings.zoteroUserId || "").trim();
   const zoteroApiKey = String(settings.zoteroApiKey || "").trim();
-  if (!zoteroUserId || !zoteroApiKey) {
+  if (!zoteroApiKey) {
     return {
       ok: false,
-      message: "Add both Zotero User ID and API key before testing.",
+      message: "Paste the Zotero key you created for Horizon, then connect again.",
       state: "missing_credentials",
     };
   }
 
   try {
-    const response = await fetch(`https://api.zotero.org/users/${encodeURIComponent(zoteroUserId)}/items/top?limit=1`, {
-      headers: { "Zotero-API-Key": zoteroApiKey },
+    const response = await fetch("https://api.zotero.org/keys/current", {
+      headers: {
+        "Zotero-API-Key": zoteroApiKey,
+        "Zotero-API-Version": "3",
+      },
     });
-    if (response.ok) {
-      return { ok: true, message: "Zotero connection test passed.", state: "connected" };
+    const body = await response.text();
+    let data = null;
+    try {
+      data = body ? JSON.parse(body) : null;
+    } catch {
+      data = null;
     }
     if (response.status === 403) {
-      return { ok: false, message: "Zotero rejected the key or permissions.", state: "permission_missing" };
+      return { ok: false, message: "Zotero rejected this key. Create a fresh Horizon key and try again.", state: "api_key_invalid" };
     }
     if (response.status === 404) {
-      return { ok: false, message: "Zotero User ID was not found.", state: "not_found" };
+      return { ok: false, message: "Zotero could not find this key. Create a fresh Horizon key and try again.", state: "not_found" };
     }
-    return { ok: false, message: `Zotero test failed with HTTP ${response.status}.`, state: "error" };
+    if (response.status === 429) {
+      return { ok: false, message: "Zotero is temporarily rate limiting connection checks. Keep this key and try again shortly.", state: "rate_limited" };
+    }
+    if (response.status >= 500) {
+      return { ok: false, message: "Zotero is temporarily unavailable. Keep this key and try again later.", state: "offline" };
+    }
+    if (!response.ok) {
+      return { ok: false, message: `Zotero connection failed with HTTP ${response.status}.`, state: "error" };
+    }
+
+    const zoteroUserId = String(data?.userID || data?.userId || "").trim();
+    const zoteroUsername = String(data?.username || "").trim();
+    const userAccess = data?.access?.user || {};
+    const canReadLibrary = userAccess.library === true;
+    const canWriteLibrary = userAccess.write === true;
+    const settingsPatch = {
+      zoteroAccess: {
+        library: canReadLibrary,
+        write: canWriteLibrary,
+      },
+      zoteroUserId,
+      zoteroUsername,
+    };
+
+    if (!zoteroUserId || !canReadLibrary) {
+      return {
+        ok: false,
+        message: "This key cannot read your personal Zotero library. Create a Horizon key with Personal Library access.",
+        settingsPatch,
+        state: "permission_missing",
+      };
+    }
+    if (!canWriteLibrary) {
+      return {
+        ok: true,
+        message: `Zotero connected${zoteroUsername ? ` as ${zoteroUsername}` : ""} for reading. Add write access to let approved Capture actions create Zotero items.`,
+        settingsPatch,
+        state: "connected_limited",
+      };
+    }
+    return {
+      ok: true,
+      message: `Zotero connected${zoteroUsername ? ` as ${zoteroUsername}` : ""}. Library read and write access confirmed.`,
+      settingsPatch,
+      state: "connected",
+    };
   } catch (error) {
     return { ok: false, message: `Zotero test could not reach the API: ${error.message}`, state: "offline" };
   }
+}
+
+async function connectZoteroDesktop() {
+  const integrationId = "zotero";
+  const instructions = "Open Zotero, then go to Edit > Settings > Advanced and enable 'Allow other applications on this computer to communicate with Zotero'.";
+  let result;
+
+  try {
+    const response = await fetch("http://127.0.0.1:23119/api/users/0/items/top?format=json&limit=1", {
+      headers: { "Zotero-API-Version": "3" },
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (response.status === 403) {
+      result = { ok: false, message: `Zotero is running but local access is off. ${instructions}`, state: "permission_missing" };
+    } else if (!response.ok) {
+      result = { ok: false, message: `Zotero Desktop answered with HTTP ${response.status}. Update Zotero, restart it, and try again.`, state: "error" };
+    } else {
+      const data = await response.json().catch(() => null);
+      result = Array.isArray(data)
+        ? { ok: true, message: "Zotero Desktop connected. Horizon can read this library while Zotero is running; no API key is needed.", state: "local_connected" }
+        : { ok: false, message: "Zotero Desktop returned an unreadable library response. Update Zotero and try again.", state: "error" };
+    }
+  } catch {
+    result = {
+      ok: false,
+      message: `Zotero Desktop was not found. Install or open Zotero, wait for the library window, then try again. If it is already open, ${instructions}`,
+      state: "offline",
+    };
+  }
+
+  const settings = saveIntegrationSettingsPatch(integrationId, {
+    zoteroLocal: result.ok
+      ? { enabled: true, lastCheckedAt: nowIso(), lastMessage: result.message, state: result.state, verifiedAt: nowIso() }
+      : { enabled: false, lastCheckedAt: nowIso(), lastMessage: result.message, state: result.state, verifiedAt: null },
+  });
+  writeIntegrationRunLog({
+    actionId: "zotero.connect-desktop",
+    errors: result.ok ? [] : [result.message],
+    inputsSummary: "Checked the official Zotero Desktop local API on this PC.",
+    integrationId,
+    outputsSummary: result.message,
+    status: result.ok ? "success" : "failed",
+  });
+  return {
+    ...result,
+    connection: connectionForIntegration(integrationId),
+    settings: redactIntegrationSettings(integrationId, settings),
+  };
 }
 
 async function exchangeGoogleCodeForTokens(session, code) {
@@ -1524,14 +2029,52 @@ async function refreshGoogleAccessToken(settings) {
   });
   if (client.clientSecret) body.set("client_secret", client.clientSecret);
 
-  const response = await fetch(client.tokenUri, {
-    body,
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    method: "POST",
-  });
+  let response;
+  try {
+    response = await fetch(client.tokenUri, {
+      body,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+  } catch {
+    const message = "Google could not be reached. Check your internet connection and try again.";
+    saveIntegrationSettingsPatch("google-drive", { oauthTokens: tokens }, {
+      lastTestedAt: nowIso(),
+      lastTestResult: { message, ok: false, state: "offline" },
+    });
+    const error = new Error(message);
+    error.integrationState = "offline";
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error_description || data.error || `Google refresh failed with HTTP ${response.status}.`);
+    const providerCode = String(data.error || "").trim();
+    const needsReauth = providerCode === "invalid_grant";
+    const state = needsReauth
+      ? "needs_reauth"
+      : response.status === 429
+        ? "rate_limited"
+        : response.status >= 500
+          ? "offline"
+          : response.status === 401 || response.status === 403
+            ? "permission_missing"
+            : "error";
+    const message = needsReauth
+      ? "Google access expired or was revoked. Choose Reconnect Google and approve access again."
+      : state === "rate_limited"
+        ? "Google asked Horizon to wait before checking again. Try again in a few minutes."
+        : state === "offline"
+          ? "Google could not be reached. Check your internet connection and try again."
+          : state === "permission_missing"
+            ? "Google rejected the saved sign-in. Choose Reconnect Google and approve access again."
+            : data.error_description || providerCode || `Google refresh failed with HTTP ${response.status}.`;
+    saveIntegrationSettingsPatch("google-drive", { oauthTokens: needsReauth ? {} : tokens }, {
+      lastTestedAt: nowIso(),
+      lastTestResult: { message, ok: false, state },
+    });
+    const error = new Error(message);
+    error.integrationState = state;
+    throw error;
   }
 
   const updatedTokens = {
@@ -1550,23 +2093,36 @@ async function refreshGoogleAccessToken(settings) {
 }
 
 async function testGoogle(settings) {
-  const clientId = String(settings.clientId || "").trim();
-  if (!clientId) {
-    return { ok: false, message: "OAuth client ID is required before connecting Google.", state: "permission_missing" };
+  try {
+    readGoogleOAuthClient(settings);
+  } catch {
+    return {
+      ok: false,
+      message: "Google sign-in is not included in this copy of Horizon. You did not miss a setup step.",
+      state: "permission_missing",
+    };
   }
 
   const tokenState = googleTokenStatus(settings);
   if (tokenState === "refreshable") {
-    await refreshGoogleAccessToken(settings);
-    return { ok: true, message: "Google connection is active and refreshable.", state: "connected" };
+    try {
+      await refreshGoogleAccessToken(settings);
+      return { ok: true, message: "Google Drive is connected and will stay signed in on this PC.", state: "connected" };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "Google sign-in could not be verified.",
+        state: error?.integrationState || "offline",
+      };
+    }
   }
   if (tokenState === "access_valid") {
-    return { ok: true, message: "Google connection has a valid access token.", state: "connected" };
+    return { ok: true, message: "Google Drive is connected on this PC.", state: "connected" };
   }
   if (tokenState === "access_expired") {
-    return { ok: false, message: "Google access token expired and no refresh token is stored. Connect Google again.", state: "needs_reauth" };
+    return { ok: false, message: "Google access expired. Choose Reconnect Google and approve access again.", state: "needs_reauth" };
   }
-  return { ok: false, message: "Google OAuth config is saved. Use Connect Google to authorize this PC.", state: "auth_pending" };
+  return { ok: false, message: "Choose Connect Google, sign in in your browser, then return to Horizon.", state: "auth_pending" };
 }
 
 async function startGoogleOAuth(payload = {}) {
@@ -1693,6 +2249,12 @@ async function testIntegration(id, payload = {}) {
         }
       : { ok: false, message: "Vault path was not found.", state: "vault_missing", vault };
   } else if (id === "zotero") {
+    settings = {
+      ...settings,
+      zoteroAccess: null,
+      zoteroUserId: "",
+      zoteroUsername: "",
+    };
     result = await testZotero(settings);
   } else if (id === "research") {
     const sourcePath = String(settings.sourcePath || "").trim();
@@ -1719,6 +2281,10 @@ async function testIntegration(id, payload = {}) {
     result = { ok: false, message: "No test is available for this integration yet.", state: "not_implemented" };
   }
 
+  if (result.settingsPatch && typeof result.settingsPatch === "object") {
+    settings = { ...settings, ...result.settingsPatch };
+  }
+
   const store = readIntegrationStore();
   store.integrations[id] = {
     ...(store.integrations[id] || {}),
@@ -1736,8 +2302,9 @@ async function testIntegration(id, payload = {}) {
     status: result.ok ? "success" : "failed",
   });
 
+  const { settingsPatch: _settingsPatch, ...publicResult } = result;
   return {
-    ...result,
+    ...publicResult,
     connection: connectionForIntegration(id),
     settings: redactIntegrationSettings(id, settings),
   };
@@ -1749,6 +2316,7 @@ async function listAiAgentModels(payload = {}) {
   const provider = String(settings.provider || "OpenAI").trim();
   const apiKey = String(settings.tokenOrKey || "").trim();
   const selectedModel = String(settings.model || DEFAULT_AI_AGENT_MODEL).trim() || DEFAULT_AI_AGENT_MODEL;
+  let activeModel = selectedModel;
 
   if (provider.toLowerCase() !== "openai") {
     return {
@@ -1783,22 +2351,87 @@ async function listAiAgentModels(payload = {}) {
 
     if (!response.ok) {
       const message = data?.error?.message || body || "OpenAI model refresh failed.";
-      result = { ok: false, message, state: "models_request_failed" };
+      const errorCode = String(data?.error?.code || data?.error?.type || "").toLowerCase();
+      const billingOrQuota = /billing|credit|quota/.test(`${errorCode} ${message}`.toLowerCase());
+      const state = response.status === 401
+        ? "api_key_invalid"
+        : response.status === 403
+          ? "permission_missing"
+          : response.status === 429 && billingOrQuota
+            ? "billing_required"
+            : response.status === 429
+              ? "rate_limited"
+              : "models_request_failed";
+      result = { ok: false, message, state };
     } else {
-      const models = mergeAiModelOptions(Array.isArray(data?.data) ? data.data : [], selectedModel, { includeDefaults: false });
-      result = {
-        ok: true,
-        message: `Model list refreshed. ${models.length} option${models.length === 1 ? "" : "s"} available.`,
-        models,
-        selectedModel,
-        state: "models_refreshed",
-      };
+      const models = mergeAiModelOptions(Array.isArray(data?.data) ? data.data : [], selectedModel, {
+        includeDefaults: false,
+        includeSelected: false,
+      });
+      if (!models.length) {
+        result = {
+          ok: false,
+          message: "OpenAI accepted the key, but it did not return a compatible text model for Horizon.",
+          models,
+          state: "models_unavailable",
+        };
+      } else {
+        const selectedIsVisible = models.some((model) => model.id === selectedModel);
+        activeModel = selectedIsVisible ? selectedModel : models[0].id;
+        settings.model = activeModel;
+        const verificationResponse = await fetch("https://api.openai.com/v1/responses", {
+          body: JSON.stringify({
+            input: "Reply OK.",
+            max_output_tokens: 16,
+            model: activeModel,
+            store: false,
+          }),
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          method: "POST",
+        });
+        const verificationBody = await verificationResponse.text();
+        let verificationData = null;
+        try {
+          verificationData = verificationBody ? JSON.parse(verificationBody) : null;
+        } catch {
+          verificationData = null;
+        }
+
+        if (!verificationResponse.ok || verificationData?.error) {
+          const message = verificationData?.error?.message || verificationBody || "OpenAI Responses access could not be verified.";
+          const errorCode = String(verificationData?.error?.code || verificationData?.error?.type || "").toLowerCase();
+          const billingOrQuota = /billing|credit|quota/.test(`${errorCode} ${message}`.toLowerCase());
+          const state = verificationResponse.status === 401
+            ? "api_key_invalid"
+            : verificationResponse.status === 403
+              ? "permission_missing"
+              : verificationResponse.status === 429 && billingOrQuota
+                ? "billing_required"
+                : verificationResponse.status === 429
+                  ? "rate_limited"
+                  : "responses_request_failed";
+          result = { message, models, ok: false, selectedModel: activeModel, state };
+        } else {
+          result = {
+            ok: true,
+            message: selectedIsVisible
+              ? `OpenAI connected. ${models.length} text model${models.length === 1 ? " is" : "s are"} visible, and Capture access passed a tiny test request.`
+              : `OpenAI connected. ${selectedModel} is not visible, so Horizon selected ${activeModel} and verified Capture access with a tiny test request.`,
+            models,
+            selectedModel: activeModel,
+            state: "responses_verified",
+          };
+        }
+      }
     }
   } catch (error) {
     result = {
       ok: false,
       message: error instanceof Error ? error.message : "OpenAI model refresh could not run.",
-      state: "models_request_failed",
+      state: "offline",
     };
   }
 
@@ -1807,7 +2440,14 @@ async function listAiAgentModels(payload = {}) {
     ...(store.integrations[integrationId] || {}),
     settings,
     lastTestedAt: nowIso(),
-    lastTestResult: { message: result.message, ok: result.ok, state: result.state },
+    lastTestResult: {
+      message: result.message,
+      ok: result.ok,
+      state: result.state,
+      ...(result.ok && result.state === "responses_verified"
+        ? { validationVersion: AI_AGENT_VALIDATION_VERSION, verifiedModel: activeModel }
+        : {}),
+    },
   };
   saveIntegrationStore(store);
   writeIntegrationRunLog({
@@ -1821,8 +2461,8 @@ async function listAiAgentModels(payload = {}) {
 
   return {
     connection: connectionForIntegration(integrationId),
-    models: result.models || mergeAiModelOptions([], selectedModel),
-    selectedModel,
+    models: result.models || mergeAiModelOptions([], activeModel),
+    selectedModel: activeModel,
     ...result,
   };
 }
@@ -2012,22 +2652,55 @@ function rebuildVaultManifests(vaultPath = ROOT) {
 }
 
 function relaunchAndExit({ boot = false } = {}) {
+  if (IS_PACKAGED_RUNTIME) {
+    if (!fs.existsSync(HORIZON_NATIVE_APP_EXE) || !Number.isInteger(process.ppid) || process.ppid <= 0) {
+      return false;
+    }
+    const plan = {
+      args: boot ? ["--boot"] : [],
+      executable: path.resolve(HORIZON_NATIVE_APP_EXE),
+      helper: "detached-powershell",
+      parentPid: process.ppid,
+    };
+    if (TEST_NATIVE_RELAUNCH_PLAN_PATH) {
+      writeJson(TEST_NATIVE_RELAUNCH_PLAN_PATH, plan);
+      return true;
+    }
+    if (process.platform !== "win32") return false;
+
+    const argumentTail = plan.args.length
+      ? ` -ArgumentList @(${plan.args.map((argument) => shellQuote(argument)).join(", ")})`
+      : "";
+    const command = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "Start-Sleep -Milliseconds 500",
+      `Stop-Process -Id ${plan.parentPid} -Force -ErrorAction SilentlyContinue`,
+      `for ($attempt = 0; $attempt -lt 60; $attempt += 1) { if (-not (Get-Process -Id ${plan.parentPid} -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 100 }`,
+      `Start-Process -FilePath ${shellQuote(plan.executable)}${argumentTail}`,
+    ].join(" ; ");
+    try {
+      childProcess.spawn(
+        POWERSHELL,
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", command],
+        { detached: true, stdio: "ignore", windowsHide: true },
+      ).unref();
+      setTimeout(() => process.exit(0), 750);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   if (!fs.existsSync(HORIZON_HIDDEN_RUNNER)) {
     return false;
   }
 
-  const isRunningAsElectron = process.env.ELECTRON_RUN_AS_NODE === "1" && process.env.HORIZON_NATIVE_APP_EXE;
   const launcherArgs = ["launch.ps1"];
   if (boot) {
     launcherArgs.push("-ShowBoot");
     launcherArgs.push("-AutoRestartDelayMs");
     launcherArgs.push("1000");
   }
-  if (isRunningAsElectron && Number.isInteger(process.ppid) && process.ppid > 0) {
-    launcherArgs.push("-KillParentPid");
-    launcherArgs.push(String(process.ppid));
-  }
-
   childProcess.spawn(
     WSCRIPT_EXE,
     [HORIZON_HIDDEN_RUNNER, ...launcherArgs],
@@ -2068,6 +2741,15 @@ function startDetachedRepack({ relaunch = true } = {}) {
 
 async function applyUpdate() {
   const before = await updateSnapshot(true);
+  if (before.updateMode === "installer") {
+    return {
+      ...before,
+      message: before.updateAvailable
+        ? "Download the current installer, close Horizon, then run it. Your workspace and connections stay in place."
+        : before.message,
+      restarting: false,
+    };
+  }
   if (!before.supported) return { ...before, restarting: false };
   if (before.fetchFailed) {
     return {
@@ -2776,7 +3458,7 @@ function writeCapturePacket(payload, options = {}) {
     text,
     "",
     "## Codex Parsing Request",
-    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in the Rawlings Second Brain.",
+    "Use `$horizon-capture-triage` to parse this capture and decide where it belongs in the Horizon workspace.",
     "",
     "- If it has a date, create or update an RCF file in `Calendar/Items/`.",
     "- If it is a general note, keep or move it inside `Inbox/` unless a better existing folder applies.",
@@ -3038,7 +3720,11 @@ async function triageCaptureWithAi(payload) {
 
   const settings = mergedIntegrationSettings("ai-agent");
   const zoteroSettings = mergedIntegrationSettings("zotero");
-  const zoteroConfigured = Boolean(String(zoteroSettings.zoteroUserId || "").trim() && String(zoteroSettings.zoteroApiKey || "").trim());
+  const zoteroConfigured = Boolean(
+    String(zoteroSettings.zoteroUserId || "").trim()
+    && String(zoteroSettings.zoteroApiKey || "").trim()
+    && zoteroSettings.zoteroAccess?.write === true,
+  );
   const provider = String(settings.provider || "OpenAI").trim().toLowerCase();
   const apiKey = String(settings.tokenOrKey || "").trim();
   const model = String(settings.model || DEFAULT_AI_AGENT_MODEL).trim() || DEFAULT_AI_AGENT_MODEL;
@@ -3046,6 +3732,15 @@ async function triageCaptureWithAi(payload) {
 
   if (!apiKey) {
     return { ok: false, message: "AI Agent API key is not configured.", state: "api_key_required" };
+  }
+
+  const aiConnection = connectionForIntegration("ai-agent");
+  if (aiConnection.status !== "connected") {
+    return {
+      ok: false,
+      message: `AI Agent is not verified (${aiConnection.statusLabel}). Reconnect OpenAI in Settings > Integrations before assisted Capture triage.`,
+      state: aiConnection.status,
+    };
   }
 
   if (provider !== "openai") {
@@ -3066,9 +3761,8 @@ async function triageCaptureWithAi(payload) {
       : "No semantic connection targets currently exist, so leave payload.connections empty.",
     ...(zoteroConfigured
       ? []
-      : ["Zotero is not configured. Do not include add_to_zotero actions; use save_note, queue_review, or ask_clarification instead."]),
+      : ["Zotero is not connected with write access. Do not include add_to_zotero actions; use save_note, queue_review, or ask_clarification instead."]),
     "Prefer 1-3 useful actions. Add ask_clarification only when missing information blocks useful progress.",
-    `The local vault root is ${ROOT}.`,
     `Current date is ${currentToday()}; timezone is ${APP_TIME_ZONE}.`,
   ].join(" ");
 
@@ -3085,6 +3779,7 @@ async function triageCaptureWithAi(payload) {
         { role: "user", content: text },
       ],
       max_output_tokens: 1100,
+      store: false,
       text: {
         format: {
           type: "json_schema",
@@ -3201,7 +3896,7 @@ async function triageCapture(payload) {
   let aiNeedsInput = false;
   let model;
   let aiState = "disabled";
-  if (process.env.RSB_DISABLE_AI !== "1" && payload.allowAi !== false) {
+  if (process.env.RSB_DISABLE_AI !== "1" && payload.allowAi === true) {
     const ai = await triageCaptureWithAi(payload);
     if (ai.ok) {
       aiActions = (ai.triage.actions || []).map((action) => ({ ...action, source: "ai" }));
@@ -3976,6 +4671,7 @@ function zoteroCredentials() {
   const settings = mergedIntegrationSettings("zotero");
   return {
     apiKey: String(settings.zoteroApiKey || "").trim(),
+    localEnabled: Boolean(settings.zoteroLocal?.enabled && settings.zoteroLocal?.verifiedAt),
     userId: String(settings.zoteroUserId || "").trim(),
   };
 }
@@ -4001,6 +4697,27 @@ async function fetchZoteroPages(userId, apiKey, resource, query = {}) {
   return all;
 }
 
+async function fetchZoteroDesktopPages(resource, query = {}) {
+  const all = [];
+  for (let start = 0; ; start += 100) {
+    const params = new URLSearchParams({ ...query, limit: "100", start: String(start) });
+    const response = await fetch(`http://127.0.0.1:23119/api/users/0/${resource}?${params}`, {
+      headers: { "Zotero-API-Version": "3" },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (response.status === 403) {
+      throw new Error("Zotero local access is off. Enable 'Allow other applications on this computer to communicate with Zotero' in Zotero Settings > Advanced.");
+    }
+    if (!response.ok) throw new Error(`Zotero Desktop library request failed with HTTP ${response.status}.`);
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error("Zotero Desktop returned an unreadable library response.");
+    all.push(...page);
+    const total = Number(response.headers.get("total-results") || all.length);
+    if (!page.length || all.length >= total) break;
+  }
+  return all;
+}
+
 async function readZoteroResearchLibrary({ force = false } = {}) {
   const cached = safeJsonRead(RESEARCH_LIBRARY_CACHE_PATH, null);
   const cachedAt = Date.parse(cached?.fetchedAt || "");
@@ -4008,23 +4725,42 @@ async function readZoteroResearchLibrary({ force = false } = {}) {
     return { ...cached, status: "cached" };
   }
 
-  const { apiKey, userId } = zoteroCredentials();
-  if (!apiKey || !userId) return { collections: [], fetchedAt: null, items: [], status: "not_configured", userId: "" };
+  const { apiKey, localEnabled, userId } = zoteroCredentials();
+  const useCloud = Boolean(apiKey && userId);
+  if (!useCloud && !localEnabled) return { collections: [], fetchedAt: null, items: [], status: "not_configured", userId: "" };
   if (researchExternalIntegrationsDisabled()) {
-    return cached ? { ...cached, status: "cached" } : { collections: [], fetchedAt: null, items: [], status: "offline", userId };
+    return cached ? { ...cached, status: "cached" } : { collections: [], fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0" };
   }
 
   try {
-    const [items, collections] = await Promise.all([
-      fetchZoteroPages(userId, apiKey, "items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
-      fetchZoteroPages(userId, apiKey, "collections", { format: "json" }),
-    ]);
-    const next = { collections, fetchedAt: nowIso(), items, userId, version: 1 };
+    const [items, collections] = useCloud
+      ? await Promise.all([
+          fetchZoteroPages(userId, apiKey, "items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
+          fetchZoteroPages(userId, apiKey, "collections", { format: "json" }),
+        ])
+      : await Promise.all([
+          fetchZoteroDesktopPages("items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
+          fetchZoteroDesktopPages("collections", { format: "json" }),
+        ]);
+    const next = { collections, fetchedAt: nowIso(), items, source: useCloud ? "cloud" : "desktop", userId: useCloud ? userId : "0", version: 1 };
     writeJson(RESEARCH_LIBRARY_CACHE_PATH, next);
     return { ...next, status: "connected" };
   } catch (error) {
+    if (useCloud && localEnabled) {
+      try {
+        const [items, collections] = await Promise.all([
+          fetchZoteroDesktopPages("items/top", { format: "json", include: "data,bib", linkwrap: "1", style: "apa" }),
+          fetchZoteroDesktopPages("collections", { format: "json" }),
+        ]);
+        const next = { collections, fetchedAt: nowIso(), items, source: "desktop", userId: "0", version: 1 };
+        writeJson(RESEARCH_LIBRARY_CACHE_PATH, next);
+        return { ...next, cloudError: error.message, status: "connected" };
+      } catch {
+        // If both sources fail, preserve the last good cache below.
+      }
+    }
     if (cached) return { ...cached, error: error.message, status: "stale" };
-    return { collections: [], error: error.message, fetchedAt: null, items: [], status: "offline", userId };
+    return { collections: [], error: error.message, fetchedAt: null, items: [], status: "offline", userId: useCloud ? userId : "0" };
   }
 }
 
@@ -4091,7 +4827,9 @@ function zoteroPapers(library) {
       title: data.title || "Untitled paper",
       year: firstYearFromText(datePublished) || "unknown",
       zoteroKey: item.key,
-      zoteroUrl: item.links?.alternate?.href || `https://www.zotero.org/users/${encodeURIComponent(library.userId)}/items/${encodeURIComponent(item.key)}`,
+      zoteroUrl: item.links?.alternate?.href || (library.source === "desktop"
+        ? `zotero://select/library/items/${encodeURIComponent(item.key)}`
+        : `https://www.zotero.org/users/${encodeURIComponent(library.userId)}/items/${encodeURIComponent(item.key)}`),
     });
   });
 }
@@ -4224,7 +4962,7 @@ async function metadataForDoi(value, { allowFetch = false } = {}) {
   const request = (async () => {
     try {
       const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
-        headers: { "User-Agent": "HorizonOS/0.2 (+https://github.com/BoomerRawlings/horizon-os)" },
+        headers: { "User-Agent": `HorizonOS/${APP_VERSION} (+https://github.com/BoomerRawlings/horizon-os)` },
         signal: AbortSignal.timeout(12000),
       });
       const body = await response.json().catch(() => ({}));
@@ -4961,8 +5699,8 @@ async function applyZoteroCaptureAction(action, capture, text) {
   const settings = mergedIntegrationSettings("zotero");
   const zoteroUserId = String(settings.zoteroUserId || "").trim();
   const zoteroApiKey = String(settings.zoteroApiKey || "").trim();
-  if (!zoteroUserId || !zoteroApiKey) {
-    throw new Error("Zotero credentials are not configured. Add your Zotero User ID and API key in Settings > Integrations > Zotero.");
+  if (!zoteroUserId || !zoteroApiKey || settings.zoteroAccess?.write !== true) {
+    throw new Error("Zotero is not connected with personal-library write access. Reconnect one Horizon key in Settings > Integrations > Zotero.");
   }
 
   const payload = action.payload || {};
@@ -5407,6 +6145,35 @@ async function applyCaptureAction(payload) {
 function sendJson(res, status, data) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(data));
+}
+
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function requestHasBody(req) {
+  const contentLength = Number(req.headers["content-length"] || 0);
+  return Boolean(req.headers["transfer-encoding"]) || (Number.isFinite(contentLength) && contentLength > 0);
+}
+
+function mutationRequestIsAllowed(req, res) {
+  if (!MUTATION_METHODS.has(String(req.method || "").toUpperCase())) return true;
+
+  const origin = String(req.headers.origin || "").trim();
+  const fetchSite = String(req.headers["sec-fetch-site"] || "").trim().toLowerCase();
+  const trustedCaller = origin
+    ? origin === TRUSTED_APP_ORIGIN
+    : fetchSite === "same-origin" || (ALLOW_ORIGINLESS_MUTATIONS && !fetchSite);
+
+  if (!trustedCaller) {
+    sendJson(res, 403, { message: "This change can only be made from the Horizon app.", ok: false });
+    return false;
+  }
+
+  if (requestHasBody(req) && !String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+    sendJson(res, 415, { message: "Horizon change requests must use JSON.", ok: false });
+    return false;
+  }
+
+  return true;
 }
 
 function sendConstellation(res) {
@@ -6047,7 +6814,16 @@ async function openFileBrowserItem(payload) {
 
 async function handle(req, res) {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    res.setHeader("content-security-policy", "frame-ancestors 'none'");
+    res.setHeader("referrer-policy", "no-referrer");
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("x-frame-options", "DENY");
+    if (String(req.headers.host || "").trim().toLowerCase() !== TRUSTED_APP_HOST) {
+      sendJson(res, 403, { message: "This request did not come through Horizon's local address.", ok: false });
+      return;
+    }
+    const url = new URL(req.url, TRUSTED_APP_ORIGIN);
+    if (!mutationRequestIsAllowed(req, res)) return;
     if (
       req.method === "GET" &&
       url.pathname === "/" &&
@@ -6077,6 +6853,9 @@ async function handle(req, res) {
         app: "rawlings-os",
         buildCommit: String(buildInfo?.commit || "").trim() || null,
         buildRenderer: String(buildInfo?.renderer || "").trim() || null,
+        credentialEncryption: REQUIRE_CREDENTIAL_ENCRYPTION && INTEGRATION_STORE_ENCRYPTION_ACTIVE
+          ? "os_protected"
+          : INTEGRATION_STORE_ENCRYPTION_ACTIVE ? "key_encrypted" : "developer_plaintext",
         version: APP_VERSION,
         ui: "horizon-react-vite",
         staticRoot: path.basename(staticRoot()),
@@ -6139,9 +6918,25 @@ async function handle(req, res) {
       sendJson(res, result.ok ? 200 : 409, result);
       return;
     }
+    if (req.method === "POST" && url.pathname.startsWith("/api/integrations/") && url.pathname.endsWith("/disconnect")) {
+      if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+        sendJson(res, 415, { message: "Disconnect requests must come from Horizon.", ok: false });
+        return;
+      }
+      await readBody(req);
+      const id = decodeURIComponent(url.pathname.slice("/api/integrations/".length, -"/disconnect".length));
+      const result = disconnectIntegration(id);
+      sendJson(res, result.ok ? 200 : 409, result);
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/api/integrations/ai-agent/models") {
       const payload = await readBody(req);
       const result = await listAiAgentModels(payload);
+      sendJson(res, result.ok ? 200 : 409, result);
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/api/integrations/zotero/local/connect") {
+      const result = await connectZoteroDesktop();
       sendJson(res, result.ok ? 200 : 409, result);
       return;
     }
@@ -6420,7 +7215,7 @@ async function handle(req, res) {
 }
 
 function selfCheck() {
-  const sample = "---\ndate: unknown\ntime_start:\ntime_end:\nimportance: high\ncategory: UCSD\nname: \"Demo\"\naction_needed: \"Confirm the exact Canvas due time.\"\nstatus: active\n---\n\n# Demo\n";
+  const sample = "---\ndate: unknown\ntime_start:\ntime_end:\nimportance: high\ncategory: School\nname: \"Demo\"\naction_needed: \"Confirm the exact course due time.\"\nstatus: active\n---\n\n# Demo\n";
   const parsed = parseItemContent(sample);
   assert.strictEqual(parsed.fields.name, "Demo");
   assert.strictEqual(parsed.fields.time_start, "");
@@ -6455,6 +7250,6 @@ if (process.argv.includes("--check")) {
   selfCheck();
 } else {
   http.createServer(handle).listen(PORT, HOST, () => {
-    console.log(`Rawlings dashboard running at http://${HOST}:${PORT}`);
+    console.log(`Horizon running at http://${HOST}:${PORT}`);
   });
 }

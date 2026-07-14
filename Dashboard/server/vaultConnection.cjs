@@ -4,7 +4,7 @@ const path = require("path");
 
 const REQUIRED_VAULT_PATHS = [
   "00_Index.md",
-  "HORIZON.md",
+  "AGENTS.md",
   "Calendar",
   "Inbox",
   "Runs",
@@ -16,6 +16,8 @@ const PORTABLE_WORKSPACE_PATHS = [
 ];
 
 const HORIZON_STRUCTURE_PATHS = [
+  path.join(".obsidian", "app.json"),
+  "HORIZON.md",
   path.join("00_System", "manifests", "integrations.manifest.json"),
   path.join("00_System", "manifests", "dashboard.manifest.json"),
   path.join("06_Integrations", "index.md"),
@@ -53,6 +55,102 @@ function vaultStructureStatus(vaultPath, fallbackPath = "") {
     path: resolved,
     ready: exists && missingRequired.length === 0,
   };
+}
+
+function validateStarterTemplate(templatePath) {
+  const status = vaultStructureStatus(templatePath);
+  if (!status.ready || !status.initialized || status.missingWorkspace.length > 0) {
+    const missing = [...status.missingRequired, ...status.missingWorkspace, ...status.missingHorizon];
+    throw new Error(`Horizon's starter workspace is incomplete${missing.length ? `: ${missing.join(", ")}` : "."}`);
+  }
+  return status.path;
+}
+
+function copyMissingStarterEntries(templatePath, destinationPath) {
+  const templateRoot = validateStarterTemplate(templatePath);
+  const destinationRoot = path.resolve(destinationPath);
+  const created = [];
+
+  function copyEntry(sourcePath, targetPath) {
+    const sourceStat = fs.lstatSync(sourcePath);
+    if (sourceStat.isSymbolicLink()) {
+      throw new Error("The Horizon starter workspace contains an unsupported symbolic link.");
+    }
+    if (sourceStat.isDirectory()) {
+      if (fs.existsSync(targetPath) && !fs.statSync(targetPath).isDirectory()) {
+        throw new Error(`${path.relative(destinationRoot, targetPath)} already exists and is not a folder.`);
+      }
+      fs.mkdirSync(targetPath, { recursive: true });
+      for (const entry of fs.readdirSync(sourcePath).sort()) {
+        copyEntry(path.join(sourcePath, entry), path.join(targetPath, entry));
+      }
+      return;
+    }
+    if (!sourceStat.isFile() || fs.existsSync(targetPath)) return;
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.copyFileSync(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
+    created.push(path.relative(destinationRoot, targetPath).replace(/\\/g, "/"));
+  }
+
+  fs.mkdirSync(destinationRoot, { recursive: true });
+  for (const entry of fs.readdirSync(templateRoot).sort()) {
+    copyEntry(path.join(templateRoot, entry), path.join(destinationRoot, entry));
+  }
+  return created;
+}
+
+function nextAvailableVaultPath(preferredPath) {
+  const preferred = path.resolve(String(preferredPath || "").trim());
+  if (!fs.existsSync(preferred)) return preferred;
+  for (let suffix = 2; suffix < 1000; suffix += 1) {
+    const candidate = `${preferred} ${suffix}`;
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error("Horizon could not find an unused name for the new workspace.");
+}
+
+function createStarterVault(templatePath, destinationPath) {
+  const templateRoot = validateStarterTemplate(templatePath);
+  const destinationInput = String(destinationPath || "").trim();
+  if (!destinationInput) throw new Error("Choose where Horizon should create the workspace.");
+  const destinationRoot = path.resolve(destinationInput);
+  if (fs.existsSync(destinationRoot)) {
+    throw new Error("Horizon will not replace an existing folder. Choose a new workspace location.");
+  }
+
+  const parent = path.dirname(destinationRoot);
+  fs.mkdirSync(parent, { recursive: true });
+  const temporaryRoot = path.join(parent, `.${path.basename(destinationRoot)}.horizon-setup-${process.pid}-${Date.now()}`);
+  try {
+    if (fs.existsSync(temporaryRoot)) throw new Error("A temporary Horizon setup folder already exists.");
+    copyMissingStarterEntries(templateRoot, temporaryRoot);
+    const status = vaultStructureStatus(temporaryRoot);
+    if (!status.ready || !status.initialized || status.missingWorkspace.length > 0) {
+      throw new Error("The new workspace did not pass Horizon's safety check.");
+    }
+    fs.renameSync(temporaryRoot, destinationRoot);
+    return {
+      path: destinationRoot,
+      status: vaultStructureStatus(destinationRoot),
+    };
+  } catch (error) {
+    if (fs.existsSync(temporaryRoot)) fs.rmSync(temporaryRoot, { force: true, recursive: true });
+    throw error;
+  }
+}
+
+function addHorizonToExistingVault(templatePath, vaultPath) {
+  const before = vaultStructureStatus(vaultPath);
+  const looksLikeHorizon = before.exists && fs.existsSync(path.join(before.path, "HORIZON.md"));
+  if (!before.exists || (!before.hasObsidianConfig && !looksLikeHorizon)) {
+    throw new Error("Choose an Obsidian vault or an existing Horizon workspace.");
+  }
+  const filesCreated = copyMissingStarterEntries(templatePath, before.path);
+  const status = vaultStructureStatus(before.path);
+  if (!status.ready || !status.initialized || status.missingWorkspace.length > 0) {
+    throw new Error("Horizon could not finish preparing that vault. Existing files were not replaced.");
+  }
+  return { filesCreated, path: status.path, status };
 }
 
 function defaultHorizonAppDataDir({ env = process.env, homeDir = os.homedir(), platform = process.platform } = {}) {
@@ -118,9 +216,12 @@ module.exports = {
   HORIZON_STRUCTURE_PATHS,
   PORTABLE_WORKSPACE_PATHS,
   REQUIRED_VAULT_PATHS,
+  addHorizonToExistingVault,
   comparablePath,
+  createStarterVault,
   defaultHorizonAppDataDir,
   pathExistsDirectory,
+  nextAvailableVaultPath,
   readVaultConnection,
   samePath,
   vaultConnectionPath,

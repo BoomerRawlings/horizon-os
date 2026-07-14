@@ -1,6 +1,6 @@
 {
   "name": "rawlings-os-dashboard",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,8 +8,8 @@
     "build": "tsc --noEmit && vite build && node scripts/write-build-info.mjs",
     "native:dev": "npm run build && electron .",
     "native:pack:safe": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack-native.ps1",
+    "native:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
     "native:pack:mac": "npm run build && electron-builder --mac dmg zip",
-    "make:dist": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-distribution.ps1",
     "native:pack": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
     "native:pack:only": "echo UNSAFE inside the vault (deletes Horizon.exe on failure) - use: npm run native:pack:safe && exit 1",
     "_native:pack:unsafe": "npm run build && electron-builder --win dir",
@@ -19,7 +19,9 @@
     "test:updater": "node tests/updaterFailure.test.mjs",
     "test:updater-parity": "node tests/updaterParity.test.mjs",
     "test:installer-parity": "powershell -NoProfile -ExecutionPolicy Bypass -File tests/installerParity.test.ps1",
+    "test:legacy-migration": "node tests/legacyWindowsMigration.test.cjs",
     "test:vault": "node tests/vaultConnection.test.cjs",
+    "test:crypto": "node tests/integrationStoreCrypto.test.cjs",
     "privacy:scan": "node scripts/privacy-scan.mjs"
   },
   "main": "electron/main.cjs",
@@ -37,6 +39,8 @@
       "public/horizon-os-icon.png",
       "server.cjs",
       "server/**/*",
+      "server/integrationStoreCrypto.cjs",
+      "server/starter-vault/.obsidian/app.json",
       "launch.ps1",
       "server-start.ps1",
       "run-hidden.vbs",
@@ -44,10 +48,20 @@
     ],
     "win": {
       "target": [
-        "dir"
+        "nsis"
       ],
       "icon": "public/horizon-os-icon.ico",
-      "artifactName": "Horizon-${version}-${arch}.${ext}"
+      "artifactName": "Horizon-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Horizon",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": [

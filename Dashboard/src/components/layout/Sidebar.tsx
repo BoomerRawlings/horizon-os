@@ -122,11 +122,11 @@ export function Sidebar({
   return (
     <aside
       aria-hidden={focusNavigationCollapsed || undefined}
-      className={`horizon-sidebar fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-white/10 bg-[#06101b]/92 px-3 py-6 backdrop-blur ${
+      className={`horizon-sidebar fixed inset-y-0 left-0 z-30 flex w-64 flex-col overflow-hidden border-r border-white/10 bg-[#06101b]/92 px-3 py-6 backdrop-blur ${
         focusNavigationCollapsed ? "horizon-sidebar-focus-collapsed" : ""
       }`}
     >
-      <div className={`horizon-brand-lockup ${logoLaughClass}`}>
+      <div className={`horizon-brand-lockup shrink-0 ${logoLaughClass}`}>
         <button
           aria-label="Tickle Horizon"
           className="horizon-sidebar-logo"
@@ -145,15 +145,17 @@ export function Sidebar({
         </button>
       </div>
 
-      <nav className="grid gap-1.5">
-        {primaryNavItems.map(renderNavItem)}
-        <div className="horizon-sidebar-section-label mt-3 px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-          Integrations
+      <nav className="horizon-sidebar-nav min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="grid gap-1.5">
+          {primaryNavItems.map(renderNavItem)}
+          <div className="horizon-sidebar-section-label mt-3 px-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+            Integrations
+          </div>
+          {integrationNavItems.map(renderNavItem)}
         </div>
-        {integrationNavItems.map(renderNavItem)}
       </nav>
 
-      <div className="mt-auto border-t border-white/10 pt-5">
+      <div className="mt-auto shrink-0 border-t border-white/10 pt-5">
         <button
           className="mb-3 flex h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 text-left text-sm text-slate-400 transition hover:border-white/10 hover:bg-white/[0.03] hover:text-slate-100"
           onClick={() => onOpenSettings()}

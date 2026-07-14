@@ -1065,7 +1065,7 @@ export function App() {
               >
                 {captureMode === "sweep" ? (
                   <CaptureSweep
-                    allowAi={appSettings.privacy.codexCanParseCaptures}
+                    allowAi={appSettings.privacy.openAiCanParseCaptures}
                     onApplied={(result) => {
                       if (result.refreshCalendar) calendar.refresh();
                     }}
@@ -1076,7 +1076,7 @@ export function App() {
                   />
                 ) : (
                   <CaptureWorkspace
-                    allowAi={appSettings.privacy.codexCanParseCaptures}
+                    allowAi={appSettings.privacy.openAiCanParseCaptures}
                     audioHandle={focusAudioRef}
                     autoRunKey={captureAutoRunKey}
                     focusKey={captureFocusKey}

@@ -227,6 +227,7 @@ export type IntegrationStatus =
   | "api_key_required"
   | "api_key_invalid"
   | "permission_missing"
+  | "billing_required"
   | "vault_missing"
   | "rate_limited"
   | "offline"

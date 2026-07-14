@@ -433,9 +433,15 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
             </p>
           </div>
         </div>
+        <p>
+          <Term>Zotero Desktop</Term> connects locally without a key. Its optional cloud key discovers the account ID
+          automatically. <Term>OpenAI</Term> has a guided key and billing path. Normal users should not create Google
+          Cloud or Microsoft developer apps; Horizon labels those publisher-controlled limits directly.
+        </p>
         <p className="text-slate-500">
           Configure connections under <Term>Settings → Integrations</Term>. Credentials stay in this machine's Horizon
-          app data; only redacted connection summaries are mirrored into the vault.
+          app data and are not synced; only redacted connection summaries are mirrored into the vault. The installed
+          Windows app protects saved secrets with Windows-backed encryption.
         </p>
       </GuideSection>
 
@@ -444,7 +450,7 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
         id="horizon-guide-setup"
         label="Preferences"
         subtitle="Setup locations that are easy to confuse"
-        title="Settings, profile, and your attached vault"
+        title="Settings, profile, and your workspace"
       >
         <ul className="grid gap-2">
           <li>
@@ -462,8 +468,8 @@ export function AdvancedGuide({ onReplayTutorial }: AdvancedGuideProps) {
             <Term>Profile → Workspace defaults:</Term> default Focus preset and preferred starting workspace.
           </li>
           <li>
-            <Term>Settings → Data & Storage:</Term> shows the active local copy of your synced Obsidian vault. Change it
-            only when the vault moved or you are attaching this computer for the first time; Horizon validates and
+            <Term>Settings → Data & Storage:</Term> shows the active Horizon workspace. Change it
+            only when that folder moved or you are attaching an existing Obsidian vault; Horizon validates and
             restarts against the new root.
           </li>
         </ul>
